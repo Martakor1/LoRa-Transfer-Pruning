@@ -1,3 +1,5 @@
+experiments/result_traces
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

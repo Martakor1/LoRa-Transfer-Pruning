@@ -1,0 +1,43 @@
+#uv pip install --system --break-system-packages -r pyproject.toml --group=experiments
+#uv pip sync - синхронизирует буквально по списку
+#uv pip install - устанавливает все зависимости
+
+[project]
+name = "transfer-pruning-sandbox"
+version = "0.0.1"
+
+requires-python = "==3.10.0"
+
+dependencies = [
+    "matplotlib>=3.7.5",
+    "ipykernel",
+    "regex",
+    "numpy",
+    "ipywidgets",
+    "openpyxl>=3.1.5",
+    "torch==2.10.0",
+    "dotenv>=0.9.9",
+    "seaborn>=0.13.2",
+]
+
+[dependency-groups]
+transformer_lens = [
+    "bitsandbytes>=0.49.2",
+    "gptqmodel>=5.8.0,<6", #for support patched experts in fused modules in transformers 5
+    #--no-build-isolation need for it (too see torch from gptqmodel when install)
+    "huggingface-hub>=1.23.0",
+    "kernels>=0.12,<0.13",
+    "optimum>=2.2.0",
+    "torchinfo>=1.8.0",
+    #"transformer-lens==3.5.1",
+    "transformer-lens",
+    "transformers==5.5.1", #для дипсика нужна, но для qwen загрузки нужна 4.51 так как сохранены веса в этой версии и загружаются с перевыделением памяти.
+    #плюс в новых трансформерах эксперты - один трёхмерный жирный параметр. В старых - отдельные слои с nn.Linear внутри
+    #"torch==2.11.0", #отбой, torch==2.11.0 не поддерживает cuda 12.4
+]
+
+[tool.uv.sources]
+transformer-lens = {
+    path = "../TransformerLens", 
+    editable = true,
+}
