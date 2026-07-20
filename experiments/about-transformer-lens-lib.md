@@ -16,8 +16,8 @@ I patched lib in some positions like TransformerLens/transformer_lens/model_brid
 
 Also did it in TransformerLens/transformer_lens/model_bridge/generalized_components/moe.py
 
-Need to build gptqmodel with #--no-build-isolation and "gptqmodel>=5.8.0,<6" for qwen and gptq
+Need to build gptqmodel with #--no-build-isolation and "gptqmodel>=5.8.0,<6" for qwen and gptq (only! if no [tool.uv.extra-build-dependencies])
 
 Also uv pip install --editable /glazkov-dev/TransformerLens --no-deps for patch TransformerLens
 
-Please, use `uv sync --group=transformer_lens --no-build-isolation`
+Please, use `uv sync --group=transformer_lens --no-build-isolation` if gptqmodel not in pyproject in [tool.uv.extra-build-dependencies]
