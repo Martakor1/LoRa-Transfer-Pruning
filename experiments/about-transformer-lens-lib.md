@@ -21,3 +21,5 @@ Need to build gptqmodel with #--no-build-isolation and "gptqmodel>=5.8.0,<6" for
 Also uv pip install --editable /glazkov-dev/TransformerLens --no-deps for patch TransformerLens
 
 Please, use `uv sync --group=transformer_lens --no-build-isolation` if gptqmodel not in pyproject in [tool.uv.extra-build-dependencies]
+
+For module usage and development: https://transformerlensorg.github.io/TransformerLens/content/model_structure.html
