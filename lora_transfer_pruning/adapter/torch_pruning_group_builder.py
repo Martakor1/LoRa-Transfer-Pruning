@@ -1,6 +1,7 @@
 from typing import Callable, cast
 
 import torch
+from torch import nn
 
 import transformer_lens
 import transformer_lens.model_bridge
@@ -44,7 +45,7 @@ class TorchPruningGroupBuilder:
         )
     
     @staticmethod
-    def close_rope_pairs(local_idxs: torch.Tensor, head_dim: int):
+    def close_rope_pairs(local_idxs: torch.Tensor, head_dim: int) -> torch.Tensor:
         half = head_dim // 2
         paired = torch.where(
             local_idxs < half,
@@ -55,13 +56,40 @@ class TorchPruningGroupBuilder:
     
     @staticmethod
     def manually_indices_repeating(num_heads: int, head_dim: int, pruning_indices: torch.Tensor):
+        '''Repeat indices for deleting full channels in head_dim in 4D tensors of shape [..., heads, head_dim]'''
         all_indices = []
         for head_num in range(num_heads):
             all_indices.append(
                 pruning_indices + head_num * head_dim)
         return torch.cat(all_indices)
+    
+    
+    @staticmethod
+    def _convert_head_idx_fraction_to_idxs(idxs: float, 
+                                      tp_pruning_function: Callable, 
+                                      head_dim, 
+                                      rope_denominator: int, 
+                                      device: torch.device
+                                      ) -> torch.Tensor:
+        if (tp_pruning_function == tp.prune_linear_out_channels):
+            num_rows_to_prune = int(head_dim // rope_denominator * idxs)
+            idxs_converted = torch.randperm(head_dim // rope_denominator, device=device)[:num_rows_to_prune]
+            return idxs_converted
+        else:
+            raise NotImplementedError(f"Pruning with {tp_pruning_function} is not implemented yet for attn head.")
+                        
+    @staticmethod
+    def _convert_linear_idx_fraction_to_idxs(idxs: float, module: LinearBridge, tp_pruning_function: Callable) -> torch.Tensor:
+        original_component = cast(nn.Linear, module.original_component)
+        num_of_channels = original_component.out_features
+        if (tp_pruning_function == tp.prune_linear_in_channels):
+            num_of_channels = original_component.in_features
         
-    def get_correct_pruning_group(self, module: LinearBridge, tp_pruning_function: Callable, idxs: torch.Tensor) -> tp.Group:
+        num_channels_to_prune = int(num_of_channels * idxs)
+        return torch.randperm(num_of_channels, device=original_component.weight.device)[:num_channels_to_prune]
+                
+        
+    def get_correct_pruning_group(self, module: LinearBridge, tp_pruning_function: Callable, idxs: torch.Tensor | float) -> tp.Group:
         '''Creates torch pruning group and fixes indices for k and v modules in attn (for example for kv_repeat).
         
         For rope mirrors indices.'''
@@ -71,19 +99,43 @@ class TorchPruningGroupBuilder:
             proj_name = bridge_name[-2:]
             if (proj_name == '.q' and tp_pruning_function == tp.prune_linear_out_channels):
                 
-                #treat it is sign of RoPE (so we need to mirror indices). But it is not 100%. TODO: check
                 attn_module = self.model_bridge.get_submodule(bridge_name[:-2])
-                if (isinstance(attn_module, transformer_lens.model_bridge.generalized_components.PositionEmbeddingsAttentionBridge)):
-                    idxs = TorchPruningGroupBuilder.close_rope_pairs(idxs,attn_module.config.head_dim)
+                assert attn_module._original_component.config is not None
+                attn_config = attn_module._original_component.config
+                rope_denominator = 1
+                #treat it is sign of RoPE (so we need to mirror indices). But it is not 100%?
+                if (hasattr(self.model_bridge, 'rotary_emb')):
+                    rope_denominator = 2
+                    if (isinstance(idxs, float)):
+                        idxs = self._convert_head_idx_fraction_to_idxs(idxs, 
+                                                                tp_pruning_function, 
+                                                                attn_config.head_dim,
+                                                                rope_denominator, 
+                                                                module._original_component.weight.device
+                                                                )
+                    
+                    idxs = TorchPruningGroupBuilder.close_rope_pairs(idxs, attn_config.head_dim)
+                        
+                elif(isinstance(idxs, float)):
+                    idxs = self._convert_head_idx_fraction_to_idxs(idxs, 
+                                                                tp_pruning_function, 
+                                                                attn_config.head_dim,
+                                                                rope_denominator, 
+                                                                module._original_component.weight.device
+                                                                )
                 
-                repeating_heads = cast(int, attn_module.config.n_heads) 
+                repeating_heads = cast(int, attn_config.num_attention_heads) 
                 idxs = TorchPruningGroupBuilder.manually_indices_repeating(
                     repeating_heads,
-                    cast(int, attn_module.config.head_dim),
+                    cast(int, attn_config.head_dim),
                     idxs
                 )
             else:
                 raise NotImplementedError(f"Pruning for {bridge_name} with {tp_pruning_function} is not implemented yet. For attn module q,k,v and o linked. But torch_pruning can find group correctly only for q module.")
+        
+        else:
+            if (isinstance(idxs, float)):
+                idxs = self._convert_linear_idx_fraction_to_idxs(idxs, module, tp_pruning_function)
         
         group = self.DG.get_pruning_group(
             module._original_component, 
@@ -99,20 +151,22 @@ class TorchPruningGroupBuilder:
         for i, (dep, idxs) in enumerate(group): #type: ignore
             if (isinstance(dep.layer, torch.nn.Linear)):
                 original_bridge = cast(LinearBridge, self.model_bridge.get_submodule(dep.target.name[:dep.target.name.find(" ") - TRANSFORMER_LENS_ORIGINAL_COMPONENT_SUFFIX_LEN]))
-                #I dont find a better way to get universal transformer_lens name, only from name of hook
+                #I don't find a better way to get universal transformer_lens name, only from name of hook
                 assert original_bridge.hook_in.name is not None
                 bridge_name = original_bridge.hook_in.name[:-TorchPruningGroupBuilder._HOOK_NAME_LEN]
                 if (bridge_name.endswith(".k") or bridge_name.endswith(".v")):
                     in_channels_need_to_be_pruned = dep.pruning_fn.__name__.endswith("in_channels")
                     if (not in_channels_need_to_be_pruned):
                         attn_module = self.model_bridge.get_submodule(bridge_name[:-2])
+                        attn_config = attn_module._original_component.config
+                        assert attn_config is not None
                         for j in idxs[::-1]:
                             if (j >= original_bridge.out_features):
                                 fixed_indices = TorchPruningGroupBuilder._map_q_indices_to_kv(
                                     q_idxs=idxs,
-                                    num_q_heads=attn_module.config.n_heads,
-                                    num_kv_heads=attn_module.config.n_key_value_heads,
-                                    head_dim=attn_module.config.head_dim
+                                    num_q_heads=attn_config.num_attention_heads,
+                                    num_kv_heads=attn_config.num_key_value_heads,
+                                    head_dim=attn_config.head_dim
                                 )
                                 TorchPruningGroupBuilder.replace_linear_indices(group, dep.layer, fixed_indices, True, self.DG)
                                 break

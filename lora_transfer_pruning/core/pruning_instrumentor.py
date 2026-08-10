@@ -86,7 +86,7 @@ class PruningInstrumentor:
         For example .index_fill(-1, pruned_indices, 0.0) works only with 3D tensors,
         but for q_proj AttentionBridge creates hook_conversion 3D->4D inside every hook_out.
         We should revoke that conversion.  
-        Should work only on torch.views and dont consume additional memory.
+        Should work only on torch.views and don't consume additional memory.
         '''
         
         def wrappedHook(tensor: torch.Tensor, hook: HookPoint) -> torch.Tensor:
@@ -111,6 +111,7 @@ class PruningInstrumentor:
         """
         new_activation = activation.index_fill(-1, pruned_indices, 0.0)
         #is rescaling valid for many heads in one dim in qkvo TODO
+        #TODO RMSnorm check, mean calculation and +eps can be wrong
         if (rescale): #TODO make two different methods for faster execution without rescale param???
             new_activation = PruningInstrumentor._rescale_activation_after_ablation(new_activation, activation, dim=-1)
         return new_activation
