@@ -25,7 +25,6 @@ def test_activation_pruning_matches_pruned_linear_weight_without_bias() -> None:
     pruned_weight[pruned_rows, :] = 0.0
 
     weight_pruned_linear = nn.Linear(in_features, out_features, bias=False)
-    print(weight_pruned_linear.in_features)
     with torch.no_grad():
         weight_pruned_linear.weight.copy_(pruned_weight)
 
@@ -46,6 +45,7 @@ def test_activation_pruning_matches_pruned_linear_weight_without_bias() -> None:
     pruned_input = PruningInstrumentor.ablate_activation_in_linear_module(
         input_tensor,
         pruned_cols,
+        True
     )
     source_output = source_linear(pruned_input)
     weight_pruned_output = weight_pruned_linear(pruned_input)
@@ -107,6 +107,7 @@ def test_activation_pruning_matches_pruned_linear_weight_with_bias() -> None:
     pruned_input = PruningInstrumentor.ablate_activation_in_linear_module(
         input_tensor,
         pruned_cols,
+        True
     )
     source_output = source_linear(pruned_input)
     weight_pruned_output = weight_pruned_linear(pruned_input)

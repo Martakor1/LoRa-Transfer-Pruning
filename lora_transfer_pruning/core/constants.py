@@ -1,0 +1,1 @@
+TRANSFORMER_LENS_ORIGINAL_COMPONENT_SUFFIX_LEN = len("._original_component")

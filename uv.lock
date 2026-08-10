@@ -1921,6 +1921,20 @@ wheels = [
 ]
 
 [[package]]
+name = "torch-pruning"
+version = "1.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "torch", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
+    { name = "torch", version = "2.10.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bc/43/ddacbb7f5ecbd7a1223ba57e80cadd8cfc58d05c54b8b8f529e819817f22/torch_pruning-1.6.1.tar.gz", hash = "sha256:3166ab2b700a5819d2b1db5b4a228e161bc32cc31e3022563b873ddd706fcacb", size = 89167, upload-time = "2025-09-07T17:25:48.681Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/bf/ac91f896d1a0c1bb4fceaac8ffd5bf8f23754d3566137e0b313b072f8f77/torch_pruning-1.6.1-py3-none-any.whl", hash = "sha256:5cb619e55bb4d1b7ce71be9782865ad4977bfe99c148fdce9c3822eab08a9c08", size = 70181, upload-time = "2025-09-07T17:25:45.819Z" },
+]
+
+[[package]]
 name = "torchao"
 version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2039,6 +2053,7 @@ transformer-lens = [
     { name = "huggingface-hub" },
     { name = "kernels" },
     { name = "optimum" },
+    { name = "torch-pruning" },
     { name = "torchinfo" },
     { name = "transformer-lens" },
     { name = "transformers" },
@@ -2068,6 +2083,7 @@ transformer-lens = [
     { name = "huggingface-hub", specifier = ">=1.23.0" },
     { name = "kernels", specifier = ">=0.12,<0.13" },
     { name = "optimum", specifier = ">=2.2.0" },
+    { name = "torch-pruning", specifier = ">=1.6.1" },
     { name = "torchinfo", specifier = ">=1.8.0" },
     { name = "transformer-lens", editable = "../TransformerLens" },
     { name = "transformers", specifier = "==5.5.1" },

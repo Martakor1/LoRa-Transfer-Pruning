@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 import torch
 from torch import nn
@@ -25,8 +25,8 @@ class PruningInstrumentor:
         original_component = cast(nn.Linear, module.original_component)
         
         # Determine the number of columns and rows to prune based on the provided fractions
-        num_cols_to_prune = int(original_component.in_features) * cols_fraction
-        num_rows_to_prune = int(original_component.out_features) * rows_fraction
+        num_cols_to_prune = int(original_component.in_features * cols_fraction)
+        num_rows_to_prune = int(original_component.out_features * rows_fraction)
 
         # Randomly select the indices of the columns and rows to prune
         pruned_cols = torch.randperm(original_component.in_features, device=original_component.weight.device)[:num_cols_to_prune]
@@ -35,7 +35,7 @@ class PruningInstrumentor:
         PruningInstrumentor.prepare_linear_for_pruning(module, pruned_cols, pruned_rows)     
 
     @staticmethod
-    def prepare_linear_for_pruning(module: LinearBridge, pruned_cols: torch.Tensor, pruned_rows: torch.Tensor):
+    def prepare_linear_for_pruning(module: LinearBridge, pruned_cols: Optional[torch.Tensor], pruned_rows: Optional[torch.Tensor], rescale: bool = True):
         """
         Prepares the linear module for pruning by instrumenting it with the necessary hooks.  
 
@@ -46,45 +46,47 @@ class PruningInstrumentor:
         """
         #see https://transformerlensorg.github.io/TransformerLens/content/model_structure.html
         
-        def hook_for_columns(tensor: torch.Tensor, hook: HookPoint):
-            return PruningInstrumentor.ablate_activation_in_linear_module(tensor, pruned_cols)
+        if (pruned_cols is not None and (len(pruned_cols) != 0)):
+            def hook_for_columns(tensor: torch.Tensor, hook: HookPoint):
+                return PruningInstrumentor.ablate_activation_in_linear_module(tensor, pruned_cols, rescale)
+            
+            hook_in_fn = hook_for_columns
+            if (module.name == "o_proj"):
+                hook_in_fn = PruningInstrumentor._flatten_heads_wrapper(hook_for_columns)
+            
+            module.hook_in.add_hook(hook_in_fn, dir="fwd") #backward???? TODO
         
-        hook_in_fn = hook_for_columns
-        if (module.name == "o_proj"):
-            hook_in_fn = PruningInstrumentor._flatten_heads_wrapper(hook_for_columns)
-        
-        module.hook_in.add_hook(hook_in_fn, dir="fwd") #backward???? TODO
-        
-        original_component = cast(nn.Linear, module.original_component)
-        if (original_component.bias is not None):
-            #restore the bias for the pruned rows (we prune only W)
-            mask = torch.zeros_like(original_component.bias)
-            mask[pruned_rows] = 1
+        if (pruned_rows is not None and (len(pruned_rows) != 0)):
+            original_component = cast(nn.Linear, module.original_component)
+            if (original_component.bias is not None):
+                #restore the bias for the pruned rows (we prune only W)
+                mask = torch.zeros_like(original_component.bias)
+                mask[pruned_rows] = 1
 
-            def hook_for_rows(tensor: torch.Tensor, hook: HookPoint):
-                ablated_output = PruningInstrumentor.ablate_activation_in_linear_module(tensor, pruned_rows)
-                return ablated_output + original_component.bias * mask
-        else:
-            def hook_for_rows(tensor: torch.Tensor, hook: HookPoint):
-                return PruningInstrumentor.ablate_activation_in_linear_module(tensor, pruned_rows)
-        
-        
-        hook_out_fn = hook_for_rows
-        if (module.name in ["q_proj", "k_proj", "v_proj"]):
-            hook_out_fn = PruningInstrumentor._flatten_heads_wrapper(hook_for_rows)
+                def hook_for_rows(tensor: torch.Tensor, hook: HookPoint):
+                    ablated_output = PruningInstrumentor.ablate_activation_in_linear_module(tensor, pruned_rows, rescale)
+                    return ablated_output + original_component.bias * mask
+            else:
+                def hook_for_rows(tensor: torch.Tensor, hook: HookPoint):
+                    return PruningInstrumentor.ablate_activation_in_linear_module(tensor, pruned_rows, rescale)
+            
+            
+            hook_out_fn = hook_for_rows
+            if (module.name in ["q_proj", "k_proj", "v_proj"]):
+                hook_out_fn = PruningInstrumentor._flatten_heads_wrapper(hook_for_rows)
 
-        module.hook_out.add_hook(hook_out_fn, dir="fwd")
+            module.hook_out.add_hook(hook_out_fn, dir="fwd")
     
     @staticmethod
     def _flatten_heads_wrapper(
         hook_fn: HookFunction,
     ) -> HookFunction:
         '''
-        TransformerLens anti-reshape 4D->3D for convinient work with activation pruning.  
+        TransformerLens anti-reshape 4D->3D for convenient work with activation pruning.  
         For example .index_fill(-1, pruned_indices, 0.0) works only with 3D tensors,
         but for q_proj AttentionBridge creates hook_conversion 3D->4D inside every hook_out.
         We should revoke that conversion.  
-        Should work only on torch.views.
+        Should work only on torch.views and dont consume additional memory.
         '''
         
         def wrappedHook(tensor: torch.Tensor, hook: HookPoint) -> torch.Tensor:
@@ -100,7 +102,7 @@ class PruningInstrumentor:
 
     
     @staticmethod
-    def ablate_activation_in_linear_module(activation: torch.Tensor, pruned_indices: torch.Tensor) -> torch.Tensor:
+    def ablate_activation_in_linear_module(activation: torch.Tensor, pruned_indices: torch.Tensor, rescale: bool) -> torch.Tensor:
         """
         Ablates activation in places linked to weight columns/rows.
 
@@ -108,7 +110,9 @@ class PruningInstrumentor:
             activation (torch.Tensor): The activation tensor to be ablated. (B, N, H)
         """
         new_activation = activation.index_fill(-1, pruned_indices, 0.0)
-        new_activation = PruningInstrumentor._rescale_activation_after_ablation(new_activation, activation, dim=-1)
+        #is rescaling valid for many heads in one dim in qkvo TODO
+        if (rescale): #TODO make two different methods for faster execution without rescale param???
+            new_activation = PruningInstrumentor._rescale_activation_after_ablation(new_activation, activation, dim=-1)
         return new_activation
     
     @staticmethod
