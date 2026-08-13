@@ -1,5 +1,3 @@
-from typing import Optional
-
 import torch
 
 from transformer_lens.model_bridge.bridge import TransformerBridge
@@ -8,7 +6,7 @@ import torch_pruning as tp
 
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
 from lora_transfer_pruning.usecase.torch_pruning_group_mapper import TorchPruningGroupMapper
-from lora_transfer_pruning.usecase.prune_task_type import PruneTaskType
+from lora_transfer_pruning.core.prune_task_type import ModelPruneTask
 
 class LocalPruning:
     #TODO not local? diff?
@@ -24,35 +22,31 @@ class LocalPruning:
             unwrapped_params
         )
 
-    def get_torch_pruning_groups(self, prune_task: PruneTaskType):
+    def get_torch_pruning_groups(self, prune_task: ModelPruneTask):
         '''Creates torch_pruning groups from prune_task without real pruning and fix indices in them (especially in attn).'''
         pruning_groups = []
-        for module_name, (cols, rows) in prune_task.items():
+        for module_name, groupPruneTask in prune_task.items():
             module = self.model_bridge.get_submodule(module_name)
             assert isinstance(module, LinearBridge), f"Module {module_name} is not a LinearBridge and cannot be pruned."
-            if (cols):
-                if (isinstance(cols, list)):
-                    cols = torch.tensor(cols)
+            if (groupPruneTask.cols is not None):
                 pruning_groups.append(
                     self.torch_pruning_model_builder.get_correct_pruning_group(
                         module,
                         tp.prune_linear_in_channels,
-                        idxs=cols
+                        groupPruneTask
                     )
                 )
-            if (rows):
-                if (isinstance(rows, list)):
-                    rows = torch.tensor(rows)
+            if (groupPruneTask.rows is not None):
                 pruning_groups.append(  
                     self.torch_pruning_model_builder.get_correct_pruning_group(
                         module,
                         tp.prune_linear_out_channels,
-                        idxs=rows
+                        groupPruneTask
                     )
                 )
         return pruning_groups
     
-    def prepare_model_to_transfer_pruning(self, prune_task: PruneTaskType, rescale=True):
+    def prepare_model_to_transfer_pruning(self, prune_task: ModelPruneTask, rescale=True):
         '''Prepares model for transfer pruning by creating torch_pruning groups,
         fixing indices in them and using these indices and groups for creating activation hooks on belonged modules.
         That hooks will zero out activations, implementing so called "transfer pruning".
@@ -64,3 +58,5 @@ class LocalPruning:
         '''Prepares model for transfer from fixed torch_pruning groups'''
         for group in pruning_groups:
             TorchPruningGroupMapper.prepare_group_for_transfer_pruning(self.model_bridge, group, rescale)
+        
+        TorchPruningGroupMapper.prepare_all_norms(self.model_bridge)            

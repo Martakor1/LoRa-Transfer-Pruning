@@ -4,7 +4,9 @@ import torch
 from torch import nn
 
 from transformer_lens.hook_points import HookFunction, HookPoint
+from transformer_lens.model_bridge.generalized_components.base import GeneralizedComponent
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
+from transformer_lens.model_bridge.generalized_components.mla_attention import MLAAttentionBridge
 
 
 class PruningInstrumentor:
@@ -121,3 +123,47 @@ class PruningInstrumentor:
         old_norm = old_activation.norm(dim=dim, keepdim=True)
         new_activation = new_activation * (old_norm / new_activation.norm(dim=dim, keepdim=True).clamp_min(1e-8))
         return new_activation #TODO is rescale legal in case of bias (scale*(wx+b))?
+        
+    @staticmethod
+    def prepare_rms_norm_for_pruning_dynamically(rms_module: GeneralizedComponent):
+        """
+        Add hook for RMSNorm module with <b>dynamic</b> zero channels recognition. Out hook contains coefficient.
+        The coefficient fix norm part to be calculated with pruned num of channels, not original num.
+        
+        NOTE: for activations near zero can be wrong because of +eps approximation.
+        NOTE: give inaccurate results, if output of original RMSNorm in bfloat16  
+
+        Args:
+            module (nn.Module): The RMSNorm module to be instrumented for pruning.
+            pruned_indices (torch.Tensor): The indices of the weights to be pruned.
+        """
+        PRUNED_LEN = -1
+        def get_pruned_len(tensor: torch.Tensor, hook: HookPoint):
+            nonlocal PRUNED_LEN
+            PRUNED_LEN = (tensor == 0.0).sum(dim=-1).view(-1)[0].item()
+            return tensor
+        
+        rms_module.hook_in.add_hook(get_pruned_len, dir="fwd")
+        
+        def hook_for_rmsnorm(tensor: torch.Tensor, hook: HookPoint):
+            real_shapes = tensor.shape[-1]
+            pruned_shapes = real_shapes - PRUNED_LEN
+            return tensor * ((pruned_shapes / real_shapes) ** 0.5) #doesnt consider +eps~1e-6 in real RMS implementations
+        
+        rms_module.hook_out.add_hook(hook_for_rmsnorm, dir="fwd")
+        
+    @staticmethod
+    def prepare_mla_attention_bridge_for_pruning(attn_bridge: MLAAttentionBridge, q_indices: torch.Tensor):
+        ''' Fix scaling coefficient that use scaling = self._qk_head_dim ** (-0.5) because real _qk_head_dim
+        changed. Gets real dim by substracting q_indices (with nope and pe parts) from attn.qk_head_dim.
+        '''
+        old_qk_head_dim = attn_bridge.qk_head_dim
+        new_qk_head_dim = old_qk_head_dim - (q_indices < old_qk_head_dim).sum().item()
+        scale_correction = (
+            old_qk_head_dim / new_qk_head_dim
+        ) ** 0.5
+
+        def hook(tensor: torch.Tensor, hook: HookPoint):
+            return tensor * scale_correction
+    
+        attn_bridge.hook_attn_scores.add_hook(hook, dir="fwd")

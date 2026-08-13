@@ -367,3 +367,157 @@ sliding/full attention
 ```
 
 А `(6-10): 5 x` относится исключительно к красивой печати модели и не означает, что эти пять слоёв являются одним модулем или имеют общие веса.
+
+# O MoE в gemma и почему он не может быть MoEBridge
+`experts` стал `GeneralizedComponent` не из-за ошибки создания твоей модели. Это явно задано в Gemma 4 adapter:
+
+```python
+# MoE branch — present only when enable_moe_block (26B-A4B).
+"router": GeneralizedComponent(name="router", optional=True),
+"experts": GeneralizedComponent(name="experts", optional=True),
+```
+
+Поэтому в notebook закономерно появляется:
+
+```text
+blocks.0.experts: GeneralizedComponent
+```
+
+## Почему здесь не `MoEBridge`
+
+У Gemma 4 MoE не заменяет стандартный MLP. В decoder layer есть параллельные ветви:
+
+```text
+dense mlp ─────────────┐
+                      ├─ add
+router → experts ──────┘
+```
+
+Причём HF разделяет MoE на два независимых модуля:
+
+```python
+self.router = Gemma4TextRouter(config)
+self.experts = Gemma4TextExperts(config)
+```
+
+И вызов выглядит так:
+
+```python
+_, top_k_weights, top_k_index = self.router(hidden_states_flat)
+
+hidden_states_2 = self.experts(
+    hidden_states_2,
+    top_k_index,
+    top_k_weights,
+)
+```
+
+`Gemma4TextExperts` не выполняет routing и не возвращает router scores. Он получает уже готовые:
+
+```python
+hidden_states
+top_k_index
+top_k_weights
+```
+
+`MoEBridge` рассчитан на другую форму компонента: единый MoE-модуль получает hidden states, сам маршрутизирует их и часто возвращает:
+
+```python
+(hidden_states, router_scores)
+```
+
+Это видно из его контракта:
+
+```python
+output = self.original_component(*args, **kwargs)
+
+if isinstance(output, tuple):
+    hidden_states = output[0]
+    router_scores = output[1]
+    self.hook_router_scores(router_scores)
+```
+
+У `Gemma4TextExperts.forward()` результат — один tensor, а router вообще находится sibling-модулем. Поэтому применение существующего `MoEBridge` только к `experts` не добавило бы корректной MoE-абстракции. Оно дало бы почти то же делегирование, что и `GeneralizedComponent`, плюс фактически бесполезный `hook_router_scores`.
+
+## Что именно TransformerLens заявляет про Gemma 4
+
+Локальный adapter прямо документирует поддержку вариантов:
+
+- E2B/E4B с KV sharing и per-layer embeddings;
+- 31B/26B-A4B с `K==V`;
+- 26B-A4B с параллельной MoE-ветвью;
+- MoE-модули отображаются как optional `router` и `experts`;
+- вычисления делегируются HF для parity;
+- processed/compatibility phase 3 и fold LN отключены из-за PLE/MoE residual topology.
+
+В официальной документации Gemma 4 adapter указан как поддерживаемый для bridge phases `1, 2, 4`, но не как канонически преобразованный `MoEBridge`. [Документация Gemma4ArchitectureAdapter](https://transformerlensorg.github.io/TransformerLens/generated/code/transformer_lens.model_bridge.supported_architectures.html)
+
+Общая документация описывает `MoEBridge` как замену MLP для архитектур вроде Mixtral, GraniteMoE и OLMoE. Это другая топология, чем Gemma 4 с dense MLP плюс отдельной параллельной MoE-ветвью. [TransformerLens adapter specification](https://transformerlensorg.github.io/TransformerLens/content/adapter_development/adapter-specification.html)
+
+## Что поддерживается практически
+
+Для Gemma 4 сейчас доступны:
+
+```python
+bridge.blocks[i].router.hook_in
+bridge.blocks[i].router.hook_out
+
+bridge.blocks[i].experts.hook_in
+bridge.blocks[i].experts.hook_out
+```
+
+Но `experts.hook_in` перехватывает только первый tensor-аргумент — `hidden_states`. Дополнительные:
+
+```python
+top_k_index
+top_k_weights
+```
+
+передаются дальше без отдельных HookPoint.
+
+Также нет стандартного:
+
+```python
+bridge.blocks[i].experts.hook_router_scores
+```
+
+потому что scores принадлежат `router`, а не `experts`.
+
+
+## Для твоего pruning use case
+
+`GeneralizedComponent` скрывает внутренние параметры экспертов:
+
+```python
+gate_up_proj: [E, 2I, D]
+down_proj:    [E, D, I]
+```
+
+Они являются непосредственно `nn.Parameter`, а не `nn.Linear`. Поэтому текущая логика mapper, ориентированная на `LinearBridge`, не сможет удобно прунить отдельных экспертов или промежуточные expert channels.
+
+Если нужна полноценная поддержка pruning, логичнее создать специализированный `Gemma4ExpertsBridge`, который предоставляет:
+
+```text
+hook_in
+hook_gate
+hook_up
+hook_activation
+hook_down
+hook_out
+```
+
+и знает размерности `[experts, intermediate, hidden]`. Просто заменить:
+
+```python
+GeneralizedComponent(name="experts")
+```
+
+на:
+
+```python
+MoEBridge(name="experts")
+```
+
+недостаточно: текущий `MoEBridge` не декомпозирует batched expert weights и не перехватывает `top_k_index/top_k_weights`.
+
+Итого: TransformerLens поддерживает выполнение и базовые hooks Gemma 4 MoE через HF-delegated components, но не представляет её `experts` через канонический `MoEBridge`. Это осознанное ограничение текущего adapter mapping, вызванное отличающейся параллельной и раздельной router/experts топологией.

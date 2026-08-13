@@ -1,1 +1,0 @@
-PruneTaskType = dict[str, tuple[list[int] | float | None, list[int] | float | None]]
