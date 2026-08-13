@@ -35,14 +35,12 @@ def create_prune_task(fraction_attn_layers: list[int],
         }
     return fraction_prune_task
 
-def compare_tp_and_transfer_pruning(
+def prepare_model_for_tp_or_transfer_pruning(
     model_bridge,
     prune_task: ModelPruneTask,
     seed: int,
     evaluation_batches: torch.Tensor,
-    eval_batch_size: int,
 ):
-    """Compare baseline, transfer masking, and structural Torch-Pruning."""
     DEVICE = model_bridge.device
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -199,6 +197,22 @@ def compare_tp_and_transfer_pruning(
     print("removed group indices by module:")
     for module_name, removed in removed_idxs_by_module.items():
         print(f"  {module_name}: count={len(removed)}, idxs={removed}")
+        
+    return local_pruning, groups, structural_setups, structural_shape_modules
+
+def compare_tp_and_transfer_pruning(
+    model_bridge,
+    prune_task: ModelPruneTask,
+    seed: int,
+    evaluation_batches: torch.Tensor,
+    eval_batch_size: int,
+):
+    """Compare baseline, transfer masking, and structural Torch-Pruning."""
+    local_pruning, groups, structural_setups, structural_shape_modules = prepare_model_for_tp_or_transfer_pruning(
+        model_bridge,
+        prune_task,
+        seed,
+        evaluation_batches)
 
     baseline_metrics = evaluate_language_model(
         model_bridge, evaluation_batches, batch_size=eval_batch_size
@@ -225,7 +239,7 @@ def compare_tp_and_transfer_pruning(
             "o_proj": tuple(modules[3].weight.shape),
         }
     if structural_shapes:
-        print("structural shapes:", structural_shapes)
+        print("structural shapes after tp prune:", structural_shapes)
 
     structural_metrics = evaluate_language_model(
         model_bridge, evaluation_batches, batch_size=eval_batch_size

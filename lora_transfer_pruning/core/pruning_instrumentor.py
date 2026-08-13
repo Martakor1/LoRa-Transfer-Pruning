@@ -113,7 +113,6 @@ class PruningInstrumentor:
         """
         new_activation = activation.index_fill(-1, pruned_indices, 0.0)
         #is rescaling valid for many heads in one dim in qkvo TODO
-        #TODO RMSnorm check, mean calculation and +eps can be wrong
         if (rescale): #TODO make two different methods for faster execution without rescale param???
             new_activation = PruningInstrumentor._rescale_activation_after_ablation(new_activation, activation, dim=-1)
         return new_activation
@@ -131,7 +130,8 @@ class PruningInstrumentor:
         The coefficient fix norm part to be calculated with pruned num of channels, not original num.
         
         NOTE: for activations near zero can be wrong because of +eps approximation.
-        NOTE: give inaccurate results, if output of original RMSNorm in bfloat16  
+        NOTE: give inaccurate results, if output of original RMSNorm in bfloat16 
+        NOTE: works only in single-threaded model execution 
 
         Args:
             module (nn.Module): The RMSNorm module to be instrumented for pruning.
