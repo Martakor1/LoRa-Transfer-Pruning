@@ -30,6 +30,17 @@ def prepare_model_to_torch_pruning(model_bridge, groups, structural_setups, stru
         }
     if structural_shapes:
         print("structural shapes after tp prune:", structural_shapes)
+  
+def froze_n_layers(model_bridge: TransformerBridge, n: int, 
+                   froze_embed: bool = True,
+                   froze_unembed: bool = True):
+    if (froze_embed):
+        model_bridge.embed._original_component.requires_grad_(False)
+    if (froze_unembed):
+        model_bridge.unembed._original_component.requires_grad_(False)
+    for i in range(n):
+        for p in model_bridge.blocks[i].parameters():
+            p.requires_grad_(False)
         
 def get_learn_stat_for_some_pruning(
     model_bridge,
@@ -41,7 +52,11 @@ def get_learn_stat_for_some_pruning(
     num_steps: int = 10,
     batch_size: int = 4,
     optimizer_factory: Callable[[Any], torch.optim.Optimizer] | None = None,
-    print_every: int = 1
+    print_every: int = 1,
+    n_layers_froze: int = -1,
+    trainer_factory: Any = None,
+    froze_embed: bool = True,
+    froze_unembed: bool = False
     ):
     local_pruning, groups, structural_setups, structural_shape_modules = prepare_model_for_tp_or_transfer_pruning(
         model_bridge,
@@ -49,17 +64,41 @@ def get_learn_stat_for_some_pruning(
         seed,
         evaluation_batches
     )
+
+    if (trainer_factory is not None):
+        trainer = trainer_factory(model_bridge.original_model, optimizer_factory(model_bridge.parameters()))
+        initial_metrics = trainer.evaluate()
+        print("Before pruning:", initial_metrics)
+    else:
+        learning_history_init = train_model( #to see metrics before pruning
+            model_bridge, evaluation_batches, 1, batch_size=batch_size, optimizer_factory=optimizer_factory,
+            print_every=1
+        )
     
     if (is_torch_pruning):
         prepare_model_to_torch_pruning(model_bridge, groups, structural_setups, structural_shape_modules)
     else:
         prepare_model_to_transfer_pruning(local_pruning, groups, rescale)
     
-    learning_history = train_model(
-        model_bridge, evaluation_batches, num_steps, batch_size=batch_size, optimizer_factory=optimizer_factory,
-        print_every=print_every
-    )
-    return learning_history
+    froze_n_layers(model_bridge, n_layers_froze, froze_embed=froze_embed, froze_unembed=froze_unembed)
+    
+    if (trainer_factory is not None):
+        print("After pruning:", trainer.evaluate()) 
+    
+    
+    if (trainer_factory is not None):
+        trainer.train()
+        # learning_history_init.extend(learning_history)
+        return trainer
+    else:
+        learning_history = train_model(
+            model_bridge, evaluation_batches, num_steps, batch_size=batch_size, optimizer_factory=optimizer_factory,
+            print_every=print_every
+        )
+        learning_history_init.extend(learning_history)
+        return learning_history_init
+
+
 
 def full_load_prune_learn_pipeline(
     model_name: str,
@@ -77,8 +116,17 @@ def full_load_prune_learn_pipeline(
     batch_size: int = 4,
     optimizer_factory: Callable[[Any], torch.optim.Optimizer] | None = None,
     num_steps: int = 10,
-    print_every: int = 1
+    print_every: int = 1,
+    froze_n_layers: int = -1,
+    froze_embed: bool = False,
+    froze_unembed: bool = False,
+    trainer_factory: Any = None
     ):
+    '''
+    Params:
+        evaluation_batches: torch.Tensor - batches of data for building dep graph. If optimizer_factory is None - also is train data.
+    '''
+    
     
     model = model_load_func()
     bridge = TransformerBridge.boot_transformers(
@@ -98,5 +146,9 @@ def full_load_prune_learn_pipeline(
                                                        batch_size=batch_size,
                                                        optimizer_factory=optimizer_factory,
                                                        num_steps=num_steps,
-                                                       print_every=print_every)
+                                                       print_every=print_every,
+                                                       n_layers_froze=froze_n_layers,
+                                                       trainer_factory=trainer_factory,
+                                                       froze_embed=froze_embed,
+                                                       froze_unembed=froze_unembed)
     return learning_history

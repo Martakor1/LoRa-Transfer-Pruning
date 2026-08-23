@@ -157,9 +157,15 @@ class TorchPruningGroupBuilder:
         assert module.hook_in.name is not None
         bridge_name = module.hook_in.name[:-HOOK_IN_NAME_LEN]
         
-        idxs = torch.tensor(groupPruneTask.rows)
+        if (isinstance(groupPruneTask.rows, list)):
+            idxs = torch.tensor(groupPruneTask.rows)
+        else:
+            idxs = groupPruneTask.rows
         if (tp_pruning_function == tp.prune_linear_in_channels):
-            idxs = torch.tensor(groupPruneTask.cols)
+            if (isinstance(groupPruneTask.cols, list)):
+                idxs = torch.tensor(groupPruneTask.cols)
+            else:
+                idxs = groupPruneTask.cols
 
         # --------------------------------------------------------------------- #
         # DeepSeek V2 MLA direct-Q path.

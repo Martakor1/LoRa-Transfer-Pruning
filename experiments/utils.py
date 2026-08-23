@@ -28,7 +28,7 @@ def evaluate_language_model(
     }
 
 
-def train_model(
+def train_model( #TODO deprecate to Trainer from huggingface
     evaluated_bridge: TransformerBridge,
     token_blocks: torch.Tensor,
     num_steps: int,
@@ -39,7 +39,7 @@ def train_model(
     weight_decay: float = 0.0,
     max_grad_norm: float | None = None,
     optimizer: torch.optim.Optimizer | None = None,
-    optimizer_factory: Callable[[Any], torch.optim.Optimizer] | None = None,
+    optimizer_factory: Callable[[Any], tuple] | None = None,
     print_every: int = 1,
 ) -> list[dict[str, float | int]]:
     """Fine-tune a TransformerBridge and return per-step metrics.
@@ -66,7 +66,7 @@ def train_model(
 
     if optimizer is None:
         if optimizer_factory is not None:
-            optimizer = optimizer_factory(evaluated_bridge.parameters())
+            optimizer = optimizer_factory(evaluated_bridge.parameters())[0]
         else:
             optimizer = torch.optim.AdamW(
                 evaluated_bridge.parameters(),
