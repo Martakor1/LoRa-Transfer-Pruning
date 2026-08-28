@@ -26,7 +26,7 @@ class TorchPruningGroupMapper:
                     #no need to add hooks for modules changed in in_channels, 
                     #because activation already was pruned (zeroed) in previous out
                     if (out_channels_need_to_be_pruned or (i == 0)):
-                        original_bridge = cast(LinearBridge, model_bridge.get_submodule(dep.target.name[:dep.target.name.find(" ") - TRANSFORMER_LENS_ORIGINAL_COMPONENT_SUFFIX_LEN]))
+                        original_bridge = cast(LinearBridge, model_bridge.get_submodule(dep.target.name.rpartition("._original_component")[0]))
                         if (out_channels_need_to_be_pruned):
                             PruningInstrumentor.prepare_linear_for_pruning(original_bridge, None, idxs, rescale=rescale)
                         else:
@@ -36,7 +36,7 @@ class TorchPruningGroupMapper:
             for i, (dep, idxs) in enumerate(group): #type: ignore
                 if (isinstance(dep.layer, torch.nn.Linear)):
                     #if we compress q_proj in deepseek we should change scaling = self._qk_head_dim ** (-0.5)
-                    original_bridge = cast(LinearBridge, model_bridge.get_submodule(dep.target.name[:dep.target.name.find(" ") - TRANSFORMER_LENS_ORIGINAL_COMPONENT_SUFFIX_LEN]))
+                    original_bridge = cast(LinearBridge, model_bridge.get_submodule(dep.target.name.rpartition("._original_component")[0]))
                     assert original_bridge.hook_in.name is not None
                     bridge_name = original_bridge.hook_in.name[:-HOOK_IN_NAME_LEN]
                     if (bridge_name.endswith(".q_proj")
@@ -51,7 +51,9 @@ class TorchPruningGroupMapper:
     @staticmethod
     def prepare_all_norms(model_bridge: TransformerBridge):
         '''Prepare all norms by adding hooks that dynamically recognize num 
-        of pruned channels and make necessary rescaling.'''
+        of pruned channels and make necessary rescaling.
+        
+        We can't do it in `prepare_group_for_transfer_pruning` because not all norms have weights and thus are not in dependency graph.'''
         for name, module in model_bridge.named_modules():
             if (isinstance(module, TransformerBridge) 
                 or isinstance(module, GeneralizedComponent)

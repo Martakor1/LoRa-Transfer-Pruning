@@ -61,7 +61,7 @@ class PruningInstrumentor:
         if (pruned_rows is not None and (len(pruned_rows) != 0)):
             original_component = cast(nn.Linear, module.original_component)
             if (original_component.bias is not None):
-                #restore the bias for the pruned rows (we prune only W)
+                #restore the bias for the pruned rows (we prune only W, bias added on pruned rows)
                 mask = torch.zeros_like(original_component.bias)
                 mask[pruned_rows] = 1
 

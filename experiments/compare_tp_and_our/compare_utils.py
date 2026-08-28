@@ -2,19 +2,17 @@
 # Run on a freshly loaded, unpruned bridge; skip the preceding explicit-index
 # comparison cell after restarting the kernel.
 import gc
+import peft
 import torch
 from torch import nn
-import torch_pruning as tp
-from transformers.models.deepseek_v2.modeling_deepseek_v2 import DeepseekV2Model
 from lora_transfer_pruning.usecase.local_pruning import LocalPruning
 from lora_transfer_pruning.core.prune_task_type import GroupPruneTask, ModelPruneTask
 from experiments.utils import evaluate_language_model
-from rope_resize_for_tp import make_gemma_rope_resize_pre_hook
 from collections import OrderedDict, defaultdict
 from transformer_lens.hook_points import HookPoint
 from transformer_lens.model_bridge.bridge import TransformerBridge
-from lora_transfer_pruning.adapter.torch_pruning_group_builder import TorchPruningGroupBuilder
-
+from lora_transfer_pruning.adapter.torch_pruning.torch_pruning_group_builder import TorchPruningGroupBuilder
+from lora_transfer_pruning.adapter.torch_pruning.tp_utils import is_dependency_ordinary_module
 
 def create_prune_task(fraction_attn_layers: list[int],
                       fraction_mlp_layers: list[int],
@@ -41,6 +39,7 @@ def prepare_model_for_tp_or_transfer_pruning(
     seed: int,
     evaluation_batches: torch.Tensor,
 ):
+    '''Returns setup function that changes static fields of model like .head_dim and other.'''
     DEVICE = model_bridge.device
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -55,20 +54,14 @@ def prepare_model_for_tp_or_transfer_pruning(
         model_bridge,
         evaluation_batches[:1].to(DEVICE),
     )
-    groups = local_pruning.get_torch_pruning_groups(prune_task)
+    groups, structural_setups = local_pruning.get_torch_pruning_groups_and_structural_setups(prune_task)
 
-    removed_idxs_by_module = {}
-    structural_setups = []
     structural_shape_modules = {}
 
     # Read the final, corrected indices from groups. In particular, do not
     # reconstruct DeepSeek partial-RoPE mappings from prune_task.
-    for module_name, task in prune_task.items():
-        module_bridge = model_bridge.get_submodule(module_name)
-        module = module_bridge._original_component
-        out_idxs = _group_linear_indices(groups, module, prune_out=True)
-        removed_idxs_by_module[module_name] = out_idxs.tolist()
-
+    
+    for module_name, task in prune_task.items(): #similar code, but we just get info here, not fixing group
         if ".attn." not in module_name or not module_name.endswith(("q", "q_proj")):
             continue
 
@@ -84,120 +77,19 @@ def prepare_model_for_tp_or_transfer_pruning(
         )
 
         if is_deepseek_mla:
-            old_nope = int(hf_attn.qk_nope_head_dim)
-            old_rope = int(hf_attn.qk_rope_head_dim)
-            old_qk = old_nope + old_rope
-            num_heads = int(hf_attn.num_heads)
-
-            q_flat = out_idxs
-            q_local = torch.unique(q_flat.remainder(old_qk), sorted=True)
-            nope_local = q_local[q_local < old_nope]
-            rope_local = q_local[q_local >= old_nope] - old_nope
-            closed_rope = TorchPruningGroupBuilder.close_complex_rope_pairs(
-                rope_local
-            )
-            if not torch.equal(closed_rope.cpu(), rope_local.cpu()):
-                raise ValueError(
-                    f"Layer {layer}: Q-RoPE group indices are not closed over "
-                    "DeepSeek complex pairs."
-                )
-            if len(q_flat) != num_heads * len(q_local):
-                raise ValueError(
-                    f"Layer {layer}: DeepSeek Q indices are not identical across heads."
-                )
-            if len(rope_local) % 2:
-                raise ValueError(
-                    f"Layer {layer}: odd number of real RoPE dimensions removed."
-                )
-
-            kv_a_out = _group_linear_indices(
-                groups, hf_attn.kv_a_proj_with_mqa, prune_out=True
-            )
-            kv_b_out = _group_linear_indices(
-                groups, hf_attn.kv_b_proj, prune_out=True
-            )
-            kv_b_in = _group_linear_indices(
-                groups, hf_attn.kv_b_proj, prune_out=False
-            )
-            o_in = _group_linear_indices(groups, hf_attn.o_proj, prune_out=False)
-            if len(o_in):
-                raise ValueError(
-                    f"Layer {layer}: DeepSeek Q group still contains invalid "
-                    f"o_proj.in indices: {o_in.tolist()}."
-                )
-
-            new_nope = old_nope - len(nope_local)
-            new_rope = old_rope - len(rope_local)
-            new_qk = new_nope + new_rope
-            removed_complex = set((rope_local // 2).tolist())
-            keep_complex = torch.tensor(
-                [i for i in range(old_rope // 2) if i not in removed_complex],
-                dtype=torch.long,
-            )
-
-            print(f"layer={layer} DeepSeek indices from group:")
-            print(f"  q_local={q_local.tolist()}")
-            print(f"  q_nope={nope_local.tolist()}")
-            print(f"  q_rope={rope_local.tolist()}")
-            print(f"  kv_a.out={kv_a_out.tolist()}")
-            print(f"  kv_b.out={kv_b_out.tolist()}")
-            print(f"  kv_b.in={kv_b_in.tolist()}")
-            print(f"  o_proj.in={o_in.tolist()}")
-
-            def setup_deepseek(
-                attn=attn,
-                hf_attn=hf_attn,
-                new_nope=new_nope,
-                new_rope=new_rope,
-                new_qk=new_qk,
-                keep_complex=keep_complex,
-            ):
-                hf_attn.qk_nope_head_dim = new_nope
-                hf_attn.qk_rope_head_dim = new_rope
-                hf_attn.qk_head_dim = new_qk
-                hf_attn.head_dim = new_qk
-                hf_attn.scaling = new_qk ** -0.5
-                if getattr(attn, "_mla_params_initialized", False):
-                    attn._qk_nope_head_dim = new_nope
-                    attn._qk_rope_head_dim = new_rope
-                    attn._qk_head_dim = new_qk
-                attn.register_forward_pre_hook(
-                    _make_deepseek_complex_rope_resize_pre_hook(keep_complex),
-                    with_kwargs=True,
-                )
-
-            structural_setups.append(setup_deepseek)
             structural_shape_modules[f"blocks.{layer}.attn"] = (
-                hf_attn.q_proj,
-                hf_attn.kv_a_proj_with_mqa,
-                hf_attn.kv_b_proj,
-                hf_attn.o_proj,
+                hf_attn.q_proj._original_component,
+                hf_attn.kv_a_proj_with_mqa._original_component,
+                hf_attn.kv_b_proj._original_component,
+                hf_attn.o_proj._original_component,
             )
-        else:
-            old_head_dim = int(hf_attn.head_dim)
-            local_idxs = torch.unique(out_idxs.remainder(old_head_dim), sorted=True)
-            keep_idxs = torch.tensor(
-                [i for i in range(old_head_dim) if i not in set(local_idxs.tolist())],
-                dtype=torch.long,
-            )
-
-            def setup_standard(
-                attn=attn,
-                hf_attn=hf_attn,
-                keep_idxs=keep_idxs,
-            ):
-                hf_attn.head_dim = len(keep_idxs)
-                attn.register_forward_pre_hook(
-                    make_gemma_rope_resize_pre_hook(keep_idxs),
-                    with_kwargs=True,
-                )
-
-            structural_setups.append(setup_standard)
 
     print("removed group indices by module:")
-    for module_name, removed in removed_idxs_by_module.items():
-        print(f"  {module_name}: count={len(removed)}, idxs={removed}")
-        
+    for group in groups:
+            for dep, idxs in group: # type: ignore
+                if (is_dependency_ordinary_module(dep)):
+                    print(f"  {dep.target.name}: count={len(idxs)}, idxs={idxs}")
+            
     return local_pruning, groups, structural_setups, structural_shape_modules
 
 def compare_tp_and_transfer_pruning(
@@ -230,16 +122,7 @@ def compare_tp_and_transfer_pruning(
     for group in groups:
         group.prune()
 
-    structural_shapes = {}
-    for name, modules in structural_shape_modules.items():
-        structural_shapes[name] = {
-            "q_proj": tuple(modules[0].weight.shape),
-            "kv_a_proj_with_mqa": tuple(modules[1].weight.shape),
-            "kv_b_proj": tuple(modules[2].weight.shape),
-            "o_proj": tuple(modules[3].weight.shape),
-        }
-    if structural_shapes:
-        print("structural shapes after tp prune:", structural_shapes)
+    print("structural shapes after tp prune:", structural_shape_modules)
 
     structural_metrics = evaluate_language_model(
         model_bridge, evaluation_batches, batch_size=eval_batch_size
@@ -292,31 +175,39 @@ class CapturedStages(OrderedDict):
         self.pruned_indices = {}
 
 
-def _group_indices_by_attention_stage(attn, groups):
+def _get_group_indices_by_attention_stage(attn, groups) -> dict[str, torch.Tensor]:
     """Map TP dependencies to hook_in/hook_out of their owning components."""
     targets = {}
 
-    for stage_name, hook in attn.named_modules():
+    for relative_stage_name, hook in attn.named_modules():
         if not isinstance(hook, HookPoint):
             continue
-        if stage_name.endswith(".hook_in"):
+        if relative_stage_name.endswith(".hook_in"):
             direction = "in"
-            component_name = stage_name[:-len(".hook_in")]
-        elif stage_name.endswith(".hook_out"):
+            component_name = relative_stage_name[:-len(".hook_in")]
+        elif relative_stage_name.endswith(".hook_out"):
             direction = "out"
-            component_name = stage_name[:-len(".hook_out")]
+            component_name = relative_stage_name[:-len(".hook_out")]
         else:
             continue
 
         component = attn.get_submodule(component_name)
         original = getattr(component, "_original_component", component)
-        targets[(id(original), direction)] = stage_name
+        if isinstance(original, peft.tuners.lora.layer.Linear):
+            for adapter_name in original.active_adapters:
+                targets[(id(original.lora_A[adapter_name]), "in")] = relative_stage_name
+                targets[(id(original.lora_B[adapter_name]), "out")] = relative_stage_name
+
+            targets[(id(original.base_layer), "in")] = relative_stage_name
+            targets[(id(original.base_layer), "out")] = relative_stage_name
+        else:      
+            targets[(id(original), direction)] = relative_stage_name
 
         # Unwrapped parameters appear in TP groups as the Parameter itself,
         # rather than as their owning RMSNorm/module.
-        if direction == "out" and isinstance(original, nn.Module):
+        if isinstance(original, nn.Module):
             for parameter in original.parameters(recurse=False):
-                targets[(id(parameter), direction)] = stage_name
+                targets[(id(parameter), direction)] = relative_stage_name
 
     indices_by_stage = defaultdict(set)
     for group in groups:
@@ -329,14 +220,19 @@ def _group_indices_by_attention_stage(attn, groups):
                 direction = "in"
             if direction is None:
                 continue
+            
+            # print("debug1,", dep.target.name)
+            relative_stage_name = targets.get((id(dep.target.module), direction))
+            if relative_stage_name is not None:
+                indices_by_stage[relative_stage_name].update(map(int, idxs))
+                if (isinstance(dep.target.module, nn.Parameter)): #fix for unwrapped 1-d Parameters in rms_norm. q_norm.in and q_norm.out
+                    relative_stage_name = targets.get((id(dep.target.module), "in"))
+                    indices_by_stage[relative_stage_name].update(map(int, idxs))
 
-            stage_name = targets.get((id(dep.target.module), direction))
-            if stage_name is not None:
-                indices_by_stage[stage_name].update(map(int, idxs))
-
+            # print("debug,", relative_stage_name)
     return {
-        stage_name: torch.tensor(sorted(indices), dtype=torch.long)
-        for stage_name, indices in indices_by_stage.items()
+        relative_stage_name: torch.tensor(sorted(indices), dtype=torch.long)
+        for relative_stage_name, indices in indices_by_stage.items()
     }
 
 
@@ -347,12 +243,12 @@ def capture_attention_stages(
     groups=None,
     derived_pruned_indices=None,
 ):
-    '''Capture all attention activations in dict'''
+    '''Capture all attention activations (for shapes) in dict and get indices from torch pruning groups'''
     attn = model.blocks[layer_idx].attn
     captured, counts, handles = CapturedStages(), defaultdict(int), []
     if groups is not None:
         captured.pruned_indices.update(
-            _group_indices_by_attention_stage(attn, groups)
+            _get_group_indices_by_attention_stage(attn, groups)
         )
     if derived_pruned_indices is not None:
         captured.pruned_indices.update({
@@ -480,13 +376,23 @@ def compare_attention_stages(
 # Structural-attention helpers. All removed indices are read from the already
 # corrected TP group; prune_task is not interpreted a second time here.
 # ----------------------------------------------------------------------------- #
-def _group_linear_indices(groups, module, prune_out=True):
+def _find_pruned_indices_for_module(groups, module, prune_out=True):
     result = set()
     for group in groups:
         DG = group._DG
         for dep, idxs in group: # type: ignore
-            if dep.target.module is not module:
-                continue
+            real_module = dep.target.module
+            if (not isinstance(module, peft.tuners.lora.layer.Linear)):
+                if dep.target.module is not module: 
+                    continue
+            else:
+                if (dep.target.module is module.lora_A.default): #TODO support for different lora adapters
+                    real_module = module.lora_A.default
+                elif (dep.target.module is module.lora_B.default):
+                    real_module = module.lora_B.default
+                else:
+                    continue
+                    
             correct_handler = (
                 DG.is_out_channel_pruning_fn(dep.handler)
                 if prune_out
@@ -495,28 +401,6 @@ def _group_linear_indices(groups, module, prune_out=True):
             if correct_handler:
                 result.update(map(int, idxs))
     return torch.tensor(sorted(result), dtype=torch.long)
-
-
-def _make_deepseek_complex_rope_resize_pre_hook(
-    keep_complex_idxs: torch.Tensor,
-):
-    """Resize DeepSeek-V2 complex freqs_cis after structural RoPE pruning."""
-    def hook(module, args, kwargs):
-        position_embeddings = kwargs.get("position_embeddings")
-        if position_embeddings is None:
-            return args, kwargs
-        if not (isinstance(position_embeddings, torch.Tensor)
-                and position_embeddings.is_complex()):
-            raise TypeError(
-                "DeepSeek-V2 structural RoPE hook expected complex freqs_cis, "
-                f"got {type(position_embeddings)}."
-            )
-        kwargs = dict(kwargs)
-        kwargs["position_embeddings"] = position_embeddings.index_select(
-            -1, keep_complex_idxs.to(position_embeddings.device)
-        )
-        return args, kwargs
-    return hook
 
 
 def full_attention_test_with_prune(
@@ -529,7 +413,9 @@ def full_attention_test_with_prune(
     one_token=True #light test for 1 token
 ):
     """Compare transfer pruning with structural TP using indices from TP groups.
-    NOTE: WORKS ONLY FOR LAYER THAT IN `comparsion_layer`. Please, provide prune_task only for it."""
+    NOTE: WORKS ONLY FOR LAYER THAT IN `comparsion_layer`. Please, provide prune_task only for it's attn.  
+    ref = torch pruning
+    test = transfer pruning"""
     
     DEVICE = bridge.device
     evaluation_blocks = evaluation_blocks[:1].to(DEVICE)
@@ -541,7 +427,8 @@ def full_attention_test_with_prune(
     forward_fn = lambda model: model(comparison_tokens, return_type="logits")
 
     localPruning = LocalPruning(bridge, evaluation_blocks)
-    groups = localPruning.get_torch_pruning_groups(prune_task)
+    groups, structural_setups = localPruning.get_torch_pruning_groups_and_structural_setups(prune_task)
+
 
     attn = bridge.blocks[comparsion_layer].attn
     hf_attn = attn._original_component
@@ -561,19 +448,18 @@ def full_attention_test_with_prune(
         old_nope_dim = int(hf_attn.qk_nope_head_dim)
         old_rope_dim = int(hf_attn.qk_rope_head_dim)
         old_qk_dim = old_nope_dim + old_rope_dim
-        num_heads = int(hf_attn.num_heads)
 
-        q_flat_idxs = _group_linear_indices(groups, hf_attn.q_proj._original_component, prune_out=True)
-        kv_a_out_idxs = _group_linear_indices(
+        q_flat_idxs = _find_pruned_indices_for_module(groups, hf_attn.q_proj._original_component, prune_out=True)
+        kv_a_out_idxs = _find_pruned_indices_for_module(
             groups, hf_attn.kv_a_proj_with_mqa._original_component, prune_out=True
         )
-        kv_b_out_idxs = _group_linear_indices(
+        kv_b_out_idxs = _find_pruned_indices_for_module(
             groups, hf_attn.kv_b_proj._original_component, prune_out=True
         )
-        kv_b_in_idxs = _group_linear_indices(
+        kv_b_in_idxs = _find_pruned_indices_for_module(
             groups, hf_attn.kv_b_proj._original_component, prune_out=False
         )
-        o_proj_in_idxs = _group_linear_indices(
+        o_proj_in_idxs = _find_pruned_indices_for_module(
             groups, hf_attn.o_proj._original_component, prune_out=False
         )
 
@@ -599,23 +485,6 @@ def full_attention_test_with_prune(
                     "over complex pairs."
                 )
 
-        removed_nope = len(q_nope_local_idxs)
-        removed_rope = len(q_rope_local_idxs)
-        if len(q_flat_idxs) != num_heads * (removed_nope + removed_rope):
-            raise ValueError(
-                "DeepSeek structural pruning requires identical local Q indices "
-                "for every head."
-            )
-        if removed_rope % 2:
-            raise ValueError("DeepSeek complex RoPE must remove an even number of real dims.")
-
-        # freqs_cis has one complex coordinate per two real Q/K RoPE dims.
-        removed_complex = set((q_rope_local_idxs // 2).tolist())
-        keep_complex_idxs = torch.tensor(
-            [i for i in range(old_rope_dim // 2) if i not in removed_complex],
-            dtype=torch.long,
-        )
-
         derived_pruned_indices = {
             "hook_kv_latent": kv_b_in_idxs,
             "hook_rot_q": q_rope_local_idxs,
@@ -636,32 +505,7 @@ def full_attention_test_with_prune(
             "o_proj_in_idxs": o_proj_in_idxs,
         }.items():
             print(f"  {name}: count={len(values)}, idxs={values.tolist()}")
-
-        new_nope_dim = old_nope_dim - removed_nope
-        new_rope_dim = old_rope_dim - removed_rope
-        new_qk_dim = new_nope_dim + new_rope_dim
-        if new_nope_dim <= 0 or new_rope_dim <= 0:
-            raise ValueError(
-                f"Invalid resulting DeepSeek dimensions: nope={new_nope_dim}, "
-                f"rope={new_rope_dim}."
-            )
-
-        def structural_setup():
-            # Update both HF attention and MLAAttentionBridge cached values only
-            # after capturing the masked/reference execution.
-            hf_attn.qk_nope_head_dim = new_nope_dim
-            hf_attn.qk_rope_head_dim = new_rope_dim
-            hf_attn.qk_head_dim = new_qk_dim
-            hf_attn.head_dim = new_qk_dim
-            hf_attn.scaling = new_qk_dim ** -0.5
-            if getattr(attn, "_mla_params_initialized", False):
-                attn._qk_nope_head_dim = new_nope_dim
-                attn._qk_rope_head_dim = new_rope_dim
-                attn._qk_head_dim = new_qk_dim
-            attn.register_forward_pre_hook(
-                _make_deepseek_complex_rope_resize_pre_hook(keep_complex_idxs),
-                with_kwargs=True,
-            )
+            
     else:
         # Standard Llama/Gemma path, but indices still come from the corrected
         # group instead of being reconstructed from prune_task.
@@ -673,29 +517,16 @@ def full_attention_test_with_prune(
 
         q_module = q_bridge._original_component
         old_head_dim = int(hf_attn.head_dim)
-        num_heads = int(hf_attn.config.num_attention_heads)
-        q_flat_idxs = _group_linear_indices(groups, q_module, prune_out=True)
+        q_flat_idxs = _find_pruned_indices_for_module(groups, q_module, prune_out=True)
         local_idxs = torch.unique(q_flat_idxs.remainder(old_head_dim), sorted=True)
 
-        derived_pruned_indices = {
+        derived_pruned_indices = { #works not for all models. For gemma attn is GeneralizedComponent, not PositionEmbeddingsAttentionBridge
             "hook_cos": local_idxs,
             "hook_sin": local_idxs,
             "hook_rot_q": local_idxs,
             "hook_rot_k": local_idxs,
         }
 
-        removed = set(local_idxs.tolist())
-        keep_idxs = torch.tensor(
-            [i for i in range(old_head_dim) if i not in removed],
-            dtype=torch.long,
-        )
-
-        def structural_setup():
-            hf_attn.head_dim = old_head_dim - len(local_idxs)
-            attn.register_forward_pre_hook(
-                make_gemma_rope_resize_pre_hook(keep_idxs),
-                with_kwargs=True,
-            )
 
     # Capture masked execution before changing the physical parameter shapes.
     localPruning.prepare_model_to_transfer_pruning_from_groups(groups, rescale=False)
@@ -707,7 +538,7 @@ def full_attention_test_with_prune(
         derived_pruned_indices=derived_pruned_indices,
     )
 
-    structural_setup()
+    structural_setups[0]()
     for pruning_group in groups:
         pruning_group.prune()
 
