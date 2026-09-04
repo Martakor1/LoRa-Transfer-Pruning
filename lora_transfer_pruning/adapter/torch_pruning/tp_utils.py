@@ -14,16 +14,16 @@ def get_active_module_in_dep_graph_from_linear_bridge(module: LinearBridge, tp_p
     if (isinstance(module._original_component, nn.Linear)):
         active_module = module._original_component
     elif (isinstance(module._original_component, peft.tuners.lora.layer.Linear)):
+        adapter_name = module._original_component.active_adapters[0] #we enough with any of active adapters, all of them part of one root LinearBridge
         if (tp_pruning_function == tp.prune_linear_in_channels):
-            # TODO support different adapters
-            active_module = module._original_component.lora_A.default
+            active_module = module._original_component.lora_A[adapter_name]
         elif (tp_pruning_function == tp.prune_linear_out_channels):
-            active_module = module._original_component.lora_B.default
+            active_module = module._original_component.lora_B[adapter_name]
         else:
             raise ValueError(
                 f"Unsupported pruning function {tp_pruning_function} for LoRA Linear module.")
     else:
-        raise ValueError(
+        raise TypeError(
             f"Unsupported module type {type(module._original_component)} for pruning LinearBridge.")
 
     return cast(nn.Linear, active_module)

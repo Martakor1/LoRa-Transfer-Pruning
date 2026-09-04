@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -15,4 +15,15 @@ class GroupPruneTask:
     rows: list[int] | float | None
     kv_lora_idxs_deepseek: list[int] | float | None = None
 
-ModelPruneTask = dict[str, GroupPruneTask]
+@dataclass
+class ModelPruneTask:
+    """
+    A dataclass representing a pruning task for a model.
+
+    Attributes:
+        name (str): The name of prune task. Should be the same as the name of the LoRA adapter, which is "default" by default.
+        data (dict[str, GroupPruneTask]): A dictionary mapping full module names to their corresponding pruning tasks.
+    """
+     #due to the fact, that LoRA adapter defaul name is "default"
+    data: dict[str, GroupPruneTask]
+    name: str = "default"

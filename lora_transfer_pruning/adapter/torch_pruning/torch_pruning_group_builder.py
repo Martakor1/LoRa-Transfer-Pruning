@@ -58,9 +58,21 @@ class TorchPruningGroupBuilder:
         elif isinstance(module._original_component, peft.tuners.lora.layer.Linear):
             return cast(torch.device, module._original_component.base_layer.weight.device)
         else:
-            raise ValueError(
+            raise TypeError(
                 f"Unsupported module type {type(module._original_component)} for getting device.")
     
+
+    @staticmethod
+    def save_grad_mask(model: nn.Module) -> dict[nn.Parameter, bool]:
+        mask = {}
+        for p in model.parameters():
+            mask[p] = p.requires_grad
+        return mask
+    
+    @staticmethod
+    def load_grad_mask(mask: dict[nn.Parameter, bool]):
+        for p, saved_requires_grad in mask.items():
+            p.requires_grad = saved_requires_grad
 
     def get_correct_pruning_group_and_structural_setup(self, module: LinearBridge, tp_pruning_function: Callable, groupPruneTask: GroupPruneTask) -> tuple[tp.Group, Callable[[], None]]:
         '''Creates torch pruning group and fixes indices for k and v modules in attn (for example for kv_repeat).
@@ -73,8 +85,7 @@ class TorchPruningGroupBuilder:
         bridge_name = module.hook_in.name[:-HOOK_IN_NAME_LEN]
 
         device = TorchPruningGroupBuilder.get_device(module)
-        tp_group_task = TorchPruningGroupTask.from_group_prune_task(
-            groupPruneTask, device)
+        tp_group_task = TorchPruningGroupTask.from_group_prune_task(groupPruneTask, device)
 
         idxs = tp_group_task.rows
         if (tp_pruning_function == tp.prune_linear_in_channels):
@@ -83,7 +94,13 @@ class TorchPruningGroupBuilder:
         assert idxs is not None
 
         def setup_function(): return None  # Default no-op setup function
-
+        
+        # Needs in case of LoRA to register .base_layer(requires_grad=True) with adapters in dependency graph 
+        # for correct future torch pruning reshape of .base_layer module. Otherwise there
+        # will be incompatibility of shapes between .base_layer and .lora_A/.lora_B modules after pruning.
+        grad_mask = TorchPruningGroupBuilder.save_grad_mask(self.model_bridge)
+        self.model_bridge.original_model.requires_grad_(True) #we use whole model here, because dependencies can goes far away from supplied module
+        
         if (".attn" in bridge_name):
             # --------------------------------------------------------------------- #
             # DeepSeek V2 MLA direct-Q path.
@@ -92,7 +109,7 @@ class TorchPruningGroupBuilder:
                 and tp_pruning_function == tp.prune_linear_out_channels
                     and isinstance(self.model_bridge.model, DeepseekV2Model)):
 
-                return DeepseekV2GroupBuilder.get_correct_pruning_group_and_structural_setup_for_attn(
+                group, structural_setup = DeepseekV2GroupBuilder.get_correct_pruning_group_and_structural_setup_for_attn(
                     self.DG, 
                     self.model_bridge, 
                     module, 
@@ -102,6 +119,8 @@ class TorchPruningGroupBuilder:
                     idxs,
                     device
                 )
+                TorchPruningGroupBuilder.load_grad_mask(grad_mask)
+                return group, structural_setup
                 
             # --------------------------------------------------------------------- #
 
@@ -128,6 +147,8 @@ class TorchPruningGroupBuilder:
         )
 
         self._fix_group(group)
+        
+        TorchPruningGroupBuilder.load_grad_mask(grad_mask)
         return group, setup_function
 
     def _fix_group(self, group: tp.Group):
@@ -156,8 +177,6 @@ class TorchPruningGroupBuilder:
                                     num_kv_heads=attn_config.num_key_value_heads,
                                     head_dim=attn_config.head_dim
                                 )
-                                module_to_fix = get_active_module_in_dep_graph_from_linear_bridge(
-                                    original_bridge, dep.pruning_fn)
                                 UniversalGroupBuilder.replace_linear_indices(
-                                    group, module_to_fix, fixed_indices, True, self.DG)
+                                    group, original_bridge, fixed_indices, True, self.DG)
                                 break

@@ -6,12 +6,8 @@ from experiments.compare_tp_and_our.compare_utils import prepare_model_for_tp_or
 from experiments.utils import train_model
 from experiments.compare_tp_and_our.compare_utils import create_prune_task
 from transformer_lens.model_bridge.bridge import TransformerBridge
+from lora_transfer_pruning.usecase.prune_task_plan import PruneTaskPlan
 
-
-def prepare_model_to_transfer_pruning(local_pruning, groups, rescale):
-    local_pruning.prepare_model_to_transfer_pruning_from_groups(
-        groups, rescale=rescale
-    )
     
 def prepare_model_to_torch_pruning(model_bridge, groups, structural_setups, structural_shape_modules): 
     model_bridge.reset_hooks()
@@ -64,9 +60,11 @@ def get_learn_stat_for_some_pruning(
         seed,
         evaluation_batches
     )
+    
+    froze_n_layers(model_bridge, n_layers_froze, froze_embed=froze_embed, froze_unembed=froze_unembed)
 
     if (trainer_factory is not None):
-        trainer = trainer_factory(model_bridge.original_model, optimizer_factory(model_bridge.parameters()))
+        trainer = trainer_factory(model_bridge.original_model, (None, None))
         initial_metrics = trainer.evaluate()
         print("Before pruning:", initial_metrics)
     else:
@@ -78,9 +76,15 @@ def get_learn_stat_for_some_pruning(
     if (is_torch_pruning):
         prepare_model_to_torch_pruning(model_bridge, groups, structural_setups, structural_shape_modules)
     else:
-        prepare_model_to_transfer_pruning(local_pruning, groups, rescale)
-    
-    froze_n_layers(model_bridge, n_layers_froze, froze_embed=froze_embed, froze_unembed=froze_unembed)
+        local_pruning.prepare_model_to_transfer_pruning_from_groups( #todo change to many prune tasks
+            groups, rescale=rescale
+        )   
+        
+    #set optimizer only after prepare model (enable requires_grad=True for all adapters)
+    if (trainer_factory is not None):
+        optimizer = optimizer_factory(model_bridge.parameters())
+        trainer.optimizer = optimizer[0]
+        trainer.lr_scheduler = optimizer[1]
     
     if (trainer_factory is not None):
         print("After pruning:", trainer.evaluate()) 
@@ -135,7 +139,13 @@ def full_load_prune_learn_pipeline(
         dtype=torch.float16,
     )
     
-    prune_task = create_prune_task(fraction_attn_layers, fraction_mlp_layers, attn_out_fraction, mlp_out_fraction, q_proj_name, mlp_up_proj_name)
+    prune_task = create_prune_task(fraction_attn_layers,
+                                   fraction_mlp_layers,
+                                   attn_out_fraction,
+                                   mlp_out_fraction,
+                                   "default",
+                                   q_proj_name,
+                                   mlp_up_proj_name)
     
     learning_history = get_learn_stat_for_some_pruning(bridge, 
                                                        prune_task, 

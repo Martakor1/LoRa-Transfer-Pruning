@@ -7,11 +7,13 @@ import torch_pruning as tp
 from transformer_lens.model_bridge.bridge import TransformerBridge
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
 from transformer_lens.model_bridge.generalized_components.mla_attention import MLAAttentionBridge
-from transformers.models.deepseek_v2.modeling_deepseek_v2 import DeepseekV2Attention
+from transformers.models.deepseek_v2.modeling_deepseek_v2 import DeepseekV2Attention, DeepseekV2RMSNorm
 from lora_transfer_pruning.adapter.torch_pruning.torch_pruning_group_task import TorchPruningGroupTask
 from .deepseek_v2_structural_setup import DeepseekV2StructuralSetup
 from lora_transfer_pruning.adapter.torch_pruning.index_utils import IndexUtils
 from lora_transfer_pruning.adapter.torch_pruning.tp_utils import get_active_module_in_dep_graph_from_linear_bridge
+from lora_transfer_pruning.adapter.torch_pruning.universal.universal_group_builder import UniversalGroupBuilder
+
 
 class DeepseekV2GroupBuilder:
 
@@ -54,21 +56,8 @@ class DeepseekV2GroupBuilder:
         kv_a_idxs = rope_idxs + kv_lora_rank
         return q_idxs, kv_b_idxs, kv_a_idxs
 
-    @staticmethod
-    def _replace_mla_module_linear_indices_deepseek(
-        group, module, new_idxs, prune_out: bool, DG
-    ):
-        replacement = sorted(set(map(int, new_idxs.tolist())))
-        for i, (dep, _) in enumerate(group):  # type: ignore
-            if dep.target.module is not module:
-                continue
-            correct_handler = (
-                DG.is_out_channel_pruning_fn(dep.handler)
-                if prune_out
-                else DG.is_in_channel_pruning_fn(dep.handler)
-            )
-            if correct_handler:
-                group[i] = tp._helpers.GroupItem(dep=dep, idxs=replacement)
+
+
 
     @staticmethod
     def _get_correct_deepseek_attn_idxs(idxs: torch.Tensor | float, hf_attn: DeepseekV2Attention, tp_group_task: TorchPruningGroupTask, device: torch.device):
@@ -107,35 +96,27 @@ class DeepseekV2GroupBuilder:
         return q_idxs, kv_b_idxs, kv_lora_idxs, kv_a_idxs
     
     @staticmethod
-    def _replace_deepseek_mla_linear_indices(DG: tp.DependencyGraph, hf_attn: DeepseekV2Attention, group: tp.Group, kv_b_idxs, kv_lora_idxs, kv_a_idxs, o_in_idxs):
-        kv_b_proj_in_dep_graph_out = get_active_module_in_dep_graph_from_linear_bridge(
-            cast(LinearBridge, hf_attn.kv_b_proj), tp.prune_linear_out_channels)
-        kv_b_proj_in_dep_graph_in = get_active_module_in_dep_graph_from_linear_bridge(
-             cast(LinearBridge, hf_attn.kv_b_proj), tp.prune_linear_in_channels)
-        kv_a_proj_with_mqa_out = get_active_module_in_dep_graph_from_linear_bridge(
-             cast(LinearBridge, hf_attn.kv_a_proj_with_mqa), tp.prune_linear_out_channels)
-        o_proj_in_dep_graph_in = get_active_module_in_dep_graph_from_linear_bridge(
-             cast(LinearBridge, hf_attn.o_proj), tp.prune_linear_in_channels)
-
-        DeepseekV2GroupBuilder._replace_mla_module_linear_indices_deepseek(  # TODO is it enough to torch pruning, because in reshape/slice ops there is no change in indexes!
-            group, kv_b_proj_in_dep_graph_out, kv_b_idxs, True, DG
+    def _replace_deepseek_mla_linear_indices(DG: tp.DependencyGraph, hf_attn: DeepseekV2Attention, group: tp.Group, kv_b_idxs, kv_lora_idxs, kv_a_idxs, o_in_idxs):        
+        UniversalGroupBuilder.replace_linear_indices(
+            group, cast(LinearBridge, hf_attn.kv_b_proj), kv_b_idxs, True, DG
         )
-        DeepseekV2GroupBuilder._replace_mla_module_linear_indices_deepseek(
-            group, kv_b_proj_in_dep_graph_in, kv_lora_idxs, False, DG
+        
+        UniversalGroupBuilder.replace_linear_indices(
+            group, cast(LinearBridge, hf_attn.kv_b_proj), kv_lora_idxs, False, DG
         )
-        DeepseekV2GroupBuilder._replace_mla_module_linear_indices_deepseek(
-            group, kv_a_proj_with_mqa_out, kv_a_idxs, True, DG
+        UniversalGroupBuilder.replace_linear_indices(
+            group, cast(LinearBridge, hf_attn.kv_a_proj_with_mqa), kv_a_idxs, True, DG
         )
         # Q/K feature coordinates disappear in attention scores. They do
         # not remove V coordinates consumed by o_proj; TP cannot infer
         # that distinction through the attention kernel. #TODO it false, if we will want to prune v_out (we do it automatically now)
-        DeepseekV2GroupBuilder._replace_mla_module_linear_indices_deepseek(
-            group, o_proj_in_dep_graph_in, o_in_idxs,
+        UniversalGroupBuilder.replace_linear_indices(
+            group, cast(LinearBridge, hf_attn.o_proj), o_in_idxs,
             False, DG
         )
 
-        DeepseekV2GroupBuilder._replace_mla_module_linear_indices_deepseek(  # suppose dont use lora for RMSNorm
-            group, cast(nn.Module, hf_attn.kv_a_layernorm._original_component).weight, kv_lora_idxs, True, DG
+        UniversalGroupBuilder.replace_linear_indices(  # suppose dont use lora for RMSNorm
+            group, cast(DeepseekV2RMSNorm, hf_attn.kv_a_layernorm._original_component).weight, kv_lora_idxs, True, DG
         )
         # TODO for q_a_layernorm also via q_lora_rank... another indices
 

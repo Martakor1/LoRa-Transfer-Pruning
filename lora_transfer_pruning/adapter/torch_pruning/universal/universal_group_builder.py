@@ -1,10 +1,13 @@
 from typing import Callable, cast
 
+import peft
+from torch import nn
 import torch_pruning as tp
 import torch
 from transformers import PreTrainedConfig
 
 from transformer_lens.model_bridge.bridge import TransformerBridge
+from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
 from .universal_structural_setup import UniversalStructuralSetup
 from lora_transfer_pruning.adapter.torch_pruning.index_utils import IndexUtils
 
@@ -72,39 +75,51 @@ class UniversalGroupBuilder:
     @staticmethod
     def replace_linear_indices(
         group,
-        module,
+        module: LinearBridge | nn.Parameter,
         new_idxs,
         prune_out,
         DG: tp.DependencyGraph,
     ):
         '''Replaces channels to prune in group for concrete module'''
         new_idxs = sorted(set(map(int, new_idxs)))
-        matched_items = []
+        matched_items = set()
+        
+        potential_deps = set([module]) #if nn.Parameter
+        if (isinstance(module, LinearBridge)):
+            potential_deps = set([module._original_component]) # suppose ordinary nn.Linear
+            if (isinstance(module._original_component, peft.tuners.lora.Linear)):
+                active_adapters = module._original_component.active_adapters
+                potential_deps = set([module._original_component.base_layer])
+                if (prune_out):
+                    for adapter_name in active_adapters:
+                        potential_deps.add(module._original_component.lora_B[adapter_name])
+                else:
+                    for adapter_name in active_adapters:
+                        potential_deps.add(module._original_component.lora_A[adapter_name])
 
         for i, (dep, _) in enumerate(group):
-            if dep.target.module is not module:
+            if dep.target.module not in potential_deps:
                 continue
-
+            
             if prune_out:
-                correct_handler = DG.is_out_channel_pruning_fn(
-                    dep.handler
-                )
+                correct_handler = DG.is_out_channel_pruning_fn(dep.handler)
             else:
-                correct_handler = DG.is_in_channel_pruning_fn(
-                    dep.handler
-                )
+                correct_handler = DG.is_in_channel_pruning_fn(dep.handler)
 
             if not correct_handler:
                 continue
+            
+            if dep.target.module in matched_items:
+                raise RuntimeError(f"Module {dep.target.module} with handler {dep.handler} found twice in group.")
 
             group[i] = tp._helpers.GroupItem(
                 dep=dep,
                 idxs=new_idxs,
             )
 
-            matched_items.append(i)
+            matched_items.add(dep.target.module)
 
-        assert len(matched_items) == 1, (
-            f"Expected one group item for {module}, "
+        assert len(matched_items) == len(potential_deps), (
+            f"Expected {len(potential_deps)} group items for {module}, "
             f"found {matched_items}"
         )

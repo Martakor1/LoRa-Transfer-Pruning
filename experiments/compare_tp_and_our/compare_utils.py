@@ -13,15 +13,18 @@ from transformer_lens.hook_points import HookPoint
 from transformer_lens.model_bridge.bridge import TransformerBridge
 from lora_transfer_pruning.adapter.torch_pruning.torch_pruning_group_builder import TorchPruningGroupBuilder
 from lora_transfer_pruning.adapter.torch_pruning.tp_utils import is_dependency_ordinary_module
+from typing import Callable
+import torch_pruning as tp
 
 def create_prune_task(fraction_attn_layers: list[int],
                       fraction_mlp_layers: list[int],
                       attn_out_fraction: list[int] | float, 
                       mlp_out_fraction: list[int] | float,
+                      prune_task_name, #TODO check
                       q_proj_name = "q",
-                      mlp_up_proj_name = "up_proj" 
+                      mlp_up_proj_name = "up_proj",
                       ) -> ModelPruneTask:
-    fraction_prune_task: ModelPruneTask = {
+    fraction_prune_task = {
             **{
                 f"blocks.{layer}.attn.{q_proj_name}": GroupPruneTask(None, attn_out_fraction)
                 for layer in fraction_attn_layers
@@ -31,37 +34,39 @@ def create_prune_task(fraction_attn_layers: list[int],
                 for layer in fraction_mlp_layers
             },
         }
-    return fraction_prune_task
+    return ModelPruneTask(fraction_prune_task, prune_task_name)
 
 def prepare_model_for_tp_or_transfer_pruning(
     model_bridge,
     prune_task: ModelPruneTask,
     seed: int,
     evaluation_batches: torch.Tensor,
-):
+) -> tuple[LocalPruning, list[tp.Group], list[Callable[[], None]], dict[str, nn.Module]]:
     '''Returns setup function that changes static fields of model like .head_dim and other.'''
     DEVICE = model_bridge.device
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-    print("fraction prune_task:")
-    for module_name, task in prune_task.items():
+    print("Getting fraction prune_task...:")
+    for module_name, task in prune_task.data.items():
         print(f"  {module_name}: {task}")
+    print()
 
     model_bridge.reset_hooks()
     local_pruning = LocalPruning(
         model_bridge,
         evaluation_batches[:1].to(DEVICE),
     )
-    groups, structural_setups = local_pruning.get_torch_pruning_groups_and_structural_setups(prune_task)
-
+    prune_task_plan = local_pruning.get_torch_pruning_groups_and_structural_setups(prune_task)
+    groups = prune_task_plan.groups
+    structural_setups = prune_task_plan.structural_setups
     structural_shape_modules = {}
 
     # Read the final, corrected indices from groups. In particular, do not
     # reconstruct DeepSeek partial-RoPE mappings from prune_task.
     
-    for module_name, task in prune_task.items(): #similar code, but we just get info here, not fixing group
+    for module_name, task in prune_task.data.items(): #similar code, but we just get info here, not fixing group
         if ".attn." not in module_name or not module_name.endswith(("q", "q_proj")):
             continue
 
@@ -84,11 +89,11 @@ def prepare_model_for_tp_or_transfer_pruning(
                 hf_attn.o_proj._original_component,
             )
 
-    print("removed group indices by module:")
+    print("Removed group indices by module (prepare done):")
     for group in groups:
-            for dep, idxs in group: # type: ignore
-                if (is_dependency_ordinary_module(dep)):
-                    print(f"  {dep.target.name}: count={len(idxs)}, idxs={idxs}")
+        for dep, idxs in group: # type: ignore
+            if (is_dependency_ordinary_module(dep)):
+                print(f"  {dep.target.name}: count={len(idxs)}, idxs={idxs}")
             
     return local_pruning, groups, structural_setups, structural_shape_modules
 
@@ -386,10 +391,11 @@ def _find_pruned_indices_for_module(groups, module, prune_out=True):
                 if dep.target.module is not module: 
                     continue
             else:
-                if (dep.target.module is module.lora_A.default): #TODO support for different lora adapters
-                    real_module = module.lora_A.default
-                elif (dep.target.module is module.lora_B.default):
-                    real_module = module.lora_B.default
+                adapter_name = module.active_adapters[0]
+                if (dep.target.module is module.lora_A[adapter_name]):
+                    real_module = module.lora_A[adapter_name]
+                elif (dep.target.module is module.lora_B[adapter_name]):
+                    real_module = module.lora_B[adapter_name]
                 else:
                     continue
                     
@@ -427,8 +433,9 @@ def full_attention_test_with_prune(
     forward_fn = lambda model: model(comparison_tokens, return_type="logits")
 
     localPruning = LocalPruning(bridge, evaluation_blocks)
-    groups, structural_setups = localPruning.get_torch_pruning_groups_and_structural_setups(prune_task)
-
+    prune_task_plan = localPruning.get_torch_pruning_groups_and_structural_setups(prune_task)
+    groups = prune_task_plan.groups
+    structural_setups = prune_task_plan.structural_setups
 
     attn = bridge.blocks[comparsion_layer].attn
     hf_attn = attn._original_component
