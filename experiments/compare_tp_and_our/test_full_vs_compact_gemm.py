@@ -8,7 +8,7 @@ DTYPES = (torch.bfloat16, torch.float16, torch.float32)
 
 
 def statistics(reference: torch.Tensor, candidate: torch.Tensor) -> dict[str, float | int | bool]:
-    delta = candidate.float() - reference.float()
+    delta = candidate - reference
     return {
         "equal": torch.equal(reference, candidate),
         "different": torch.count_nonzero(reference != candidate).item(),
