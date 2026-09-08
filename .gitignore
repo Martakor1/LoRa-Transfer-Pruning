@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+*.nsys-rep
+experiments/transformer_lens_performance/result_traces
+*.pickle
