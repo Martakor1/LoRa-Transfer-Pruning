@@ -11,7 +11,8 @@ from experiments.utils import evaluate_language_model
 from collections import OrderedDict, defaultdict
 from transformer_lens.hook_points import HookPoint
 from transformer_lens.model_bridge.bridge import TransformerBridge
-from lora_transfer_pruning.adapter.torch_pruning.torch_pruning_group_builder import TorchPruningGroupBuilder
+from lora_transfer_pruning.adapter.torch_pruning.index_utils import IndexUtils
+
 from lora_transfer_pruning.adapter.torch_pruning.tp_utils import is_dependency_ordinary_module
 from typing import Callable
 import torch_pruning as tp
@@ -483,7 +484,7 @@ def full_attention_test_with_prune(
         # The group builder has already closed complex pairs. Validate instead
         # of repeating that transformation independently.
         if rope_indices and len(q_rope_local_idxs):
-            paired = TorchPruningGroupBuilder.close_complex_rope_pairs(
+            paired = IndexUtils.close_complex_rope_pairs(
                 q_rope_local_idxs
             )
             if not torch.equal(paired.cpu(), q_rope_local_idxs.cpu()):
