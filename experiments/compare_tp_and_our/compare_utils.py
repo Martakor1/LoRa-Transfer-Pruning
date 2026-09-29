@@ -1,6 +1,13 @@
 # Fraction-based version of the activation-vs-structural comparison.
 # Run on a freshly loaded, unpruned bridge; skip the preceding explicit-index
 # comparison cell after restarting the kernel.
+
+
+
+
+
+## DEPRECATED, TODO: REMOVE. Use new ComparePrunedModelsUsecase.compare_transfer_and_torch_prunings_on_layers
+## IN NEW PRUNING_LENS sub-library
 import gc
 import peft
 import torch
@@ -283,7 +290,7 @@ def capture_attention_stages(
     finally:
         for handle in handles:
             handle.remove_hooks() 
-        model.reset_hooks() # dont remove all hooks sometime, so they can be called twice later without handle.remove_hooks()
+        model.reset_hooks() # sometime it dont remove all hooks, so they can be called twice later without handle.remove_hooks()
     return captured
 
 def _align_larger_to_smaller(smaller, larger, raw_idxs, label):
@@ -382,7 +389,7 @@ def compare_attention_stages(
 # Structural-attention helpers. All removed indices are read from the already
 # corrected TP group; prune_task is not interpreted a second time here.
 # ----------------------------------------------------------------------------- #
-def _find_pruned_indices_for_module(groups, module, prune_out=True):
+def _find_pruned_indices_for_module(groups, module, prune_out=True): #TODO deprecate for TorchPruningTracer._append_group_defects
     result = set()
     for group in groups:
         DG = group._DG

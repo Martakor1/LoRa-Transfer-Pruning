@@ -60,7 +60,9 @@ class LocalPruning:
         return PruneTaskPlan(prune_task.name, groups, setups)
 
     def get_full_transfer_pruning_plan(self, prune_tasks: list[ModelPruneTask]) -> list[PruneTaskPlan]:
-        '''Creates torch_pruning groups from prune_task without real pruning and fix indices in them (especially in attn).
+        '''Creates PruneTaskPlan for every task (many lora adapters).
+        Creates Torch_pruning groups from prune_tasks without real pruning and fix indices in them (especially in attn).
+        
         Also returns structural setups for each group, which are used for torch pruning to change inner model's constants.'''
         plans = []
         for prune_task in prune_tasks:
@@ -90,8 +92,8 @@ class LocalPruning:
                 self.peft_model.set_requires_grad([prune_task_plans[0].name], requires_grad=True)
     
     def prepare_model_to_transfer_pruning(self, prune_task_plans: list[PruneTaskPlan], rescale=True):
-        '''Prepares model to transfer pruning by creating torch_pruning groups,
-        fixing indices in them and using these indices and groups for creating activation hooks on belonged modules.
+        '''Prepares model to transfer pruning by
+        fixing indices in tp groups and using these indices and groups for creating activation hooks on belonged modules.
         That hooks will zero out activations, implementing so called "transfer pruning".
         '''
         
@@ -115,5 +117,5 @@ class LocalPruning:
     
     def prepare_model_to_transfer_pruning_from_groups(self, groups: list[tp.Group], rescale=True):
         '''Prepares model for transfer from fixed torch_pruning groups (linked to one prune task)
-        and without bounding ablation hooks to model's active lora adapters (aka prune_task_name)'''
+        bounding ablation hooks, but not for the model's active lora adapters (aka prune_task_name)'''
         self.prepare_model_to_transfer_pruning([PruneTaskPlan(None, groups, [])], rescale=rescale)

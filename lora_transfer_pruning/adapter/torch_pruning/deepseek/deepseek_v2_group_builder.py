@@ -1,7 +1,6 @@
 from typing import Callable, cast
 
 import torch
-from torch import nn
 import torch_pruning as tp
 
 from transformer_lens.model_bridge.bridge import TransformerBridge

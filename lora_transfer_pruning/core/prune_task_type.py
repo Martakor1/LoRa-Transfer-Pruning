@@ -24,6 +24,5 @@ class ModelPruneTask:
         name (str): The name of prune task. Should be the same as the name of the LoRA adapter, which is "default" by default.
         data (dict[str, GroupPruneTask]): A dictionary mapping full module names to their corresponding pruning tasks.
     """
-     #due to the fact, that LoRA adapter defaul name is "default"
     data: dict[str, GroupPruneTask]
-    name: str = "default"
+    name: str = "default" #due to the fact, that LoRA adapter defaul name is "default"
