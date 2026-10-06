@@ -21,7 +21,7 @@ class ComparisonStatus(str, Enum):
 
 @dataclass
 class TensorComparison:
-    '''Restored comparison; difference is candidate - reference on CPU.
+    '''Restored comparison; difference is (candidate - reference) on CPU.
 
     difference covers the full restored shape and is omitted when store_difference=False.
     '''
@@ -51,9 +51,18 @@ class CompairingTrace:
     atol: float = 1e-4
     rtol: float = 1e-3
 
-    def print_summary(self) -> None:
-        '''Print stored statistics; first difference follows trace insertion order.'''
-        names = list(dict.fromkeys([*self.activations, *self.gradients]))
+    def print_summary(self, hide_unresolved_hooks: bool = True) -> None:
+        '''Print activation hooks in order, with gradients when present.
+
+        Hidden hooks have an unresolved activation or gradient comparison and
+        are excluded from both numbering and summary statistics.
+        '''
+        names = [
+            name for name, activation in self.activations.items()
+            if not hide_unresolved_hooks or (
+                activation.status != ComparisonStatus.UNRESOLVED
+            )
+        ]
         for index, name in enumerate(names):
             print(f"[{index:02d}] {name}")
             for label, rows in (("FWD", self.activations), ("BWD", self.gradients)):
@@ -62,10 +71,11 @@ class CompairingTrace:
         if self.metric is not None:
             self._print_comparison("METRIC", self.metric)
         for label, rows in (("FWD", self.activations), ("BWD", self.gradients)):
-            if not rows:
+            visible_rows = [(name, rows[name]) for name in names if name in rows]
+            if not visible_rows:
                 continue
-            first = next((name for name, row in rows.items() if row.status == ComparisonStatus.DIFF), None)
-            incomplete = sum(row.status not in (ComparisonStatus.OK, ComparisonStatus.DIFF) for row in rows.values())
+            first = next((name for name, row in visible_rows if row.status == ComparisonStatus.DIFF), None)
+            incomplete = sum(row.status not in (ComparisonStatus.OK, ComparisonStatus.DIFF) for _, row in visible_rows)
             print(f"FIRST {label} DIFF: {first}; not compared successfully: {incomplete}")
 
     @staticmethod

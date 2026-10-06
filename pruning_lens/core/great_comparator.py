@@ -42,34 +42,47 @@ class GreatComparator:
         return result
 
     @staticmethod
-    def _compare_hook(reference, candidate, name, backward, atol, rtol, store_difference):
-        if name not in reference.activations or name not in candidate.activations:
+    def _compare_hook(reference: PruningTrace, 
+                      candidate: PruningTrace, 
+                      hook_name: str, 
+                      compare_backward: bool, 
+                      atol: float, 
+                      rtol: float, 
+                      store_difference: bool) -> TensorComparison:
+        if hook_name not in reference.activations or hook_name not in candidate.activations:
             return TensorComparison(
                 status=ComparisonStatus.MISSING,
-                reason=f"reference={name in reference.activations}, candidate={name in candidate.activations}",
+                reason=f"reference={hook_name in reference.activations}, candidate={hook_name in candidate.activations}",
             )
-        ref = (reference.gradients if backward else reference.activations).get(name)
-        test = (candidate.gradients if backward else candidate.activations).get(name)
+        ref = (reference.gradients if compare_backward else reference.activations).get(hook_name)
+        test = (candidate.gradients if compare_backward else candidate.activations).get(hook_name)
         shapes = dict(
             reference_shape=None if ref is None else tuple(ref.shape),
             candidate_shape=None if test is None else tuple(test.shape),
         )
-        if backward and (ref is None or test is None):
+        if compare_backward and (ref is None or test is None):
             return TensorComparison(
                 status=ComparisonStatus.NO_GRAD, **shapes,
                 reason=f"reference gradient={ref is not None}, candidate gradient={test is not None}",
             )
-        if (name in reference.unresolved_pruning_hooks
-                or name in candidate.unresolved_pruning_hooks
-                or name not in reference.corruptions or name not in candidate.corruptions):
+        if (hook_name in reference.unresolved_pruning_hooks
+                or hook_name in candidate.unresolved_pruning_hooks
+                or hook_name not in reference.corruptions or hook_name not in candidate.corruptions):
             return TensorComparison(status=ComparisonStatus.UNRESOLVED, **shapes, reason="Pruning/layout mapping is unknown")
         return GreatComparator._compare_tensors(
-            ref, test, reference.corruptions[name], candidate.corruptions[name],
+            ref, test, reference.corruptions[hook_name], candidate.corruptions[hook_name],
             atol, rtol, store_difference,
         )
 
     @staticmethod
-    def _compare_tensors(ref, test, ref_corruption, test_corruption, atol, rtol, store_difference):
+    def _compare_tensors(ref: torch.Tensor, 
+                         test: torch.Tensor, 
+                         ref_corruption: ActivationCorruption, 
+                         test_corruption: ActivationCorruption, 
+                         atol: float, 
+                         rtol: float, 
+                         store_difference: bool
+                         ) -> TensorComparison:
         row = TensorComparison(
             status=ComparisonStatus.OK, reference_shape=tuple(ref.shape), candidate_shape=tuple(test.shape),
         )

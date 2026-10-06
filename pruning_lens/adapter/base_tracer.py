@@ -86,7 +86,7 @@ class BaseTracer(ABC):
                 gradient_cache, 
                 model, 
                 groups=groups,
-                corruptions_for_all_hookpoints=corruptions,
+                corruptions_upon_gradient_cache=corruptions,
                 compute_gradient=compute_gradient
             )
 
@@ -119,7 +119,7 @@ class BaseTracer(ABC):
         gradient_cache: GradientCache,
         model: TransformerBridge,
         groups: list[tp.Group],
-        corruptions_for_all_hookpoints: dict[str, ActivationCorruption],
+        corruptions_upon_gradient_cache: dict[str, ActivationCorruption],
         compute_gradient: bool
     ) -> PruningTrace:
        pass

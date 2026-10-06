@@ -1,15 +1,13 @@
 from typing import Callable, Sequence
 
 import torch
-import torch_pruning as tp
-
 from transformer_lens.model_bridge.transformer_bridge import TransformerBridge
 from lora_transfer_pruning.core.prune_task_type import ModelPruneTask
 from lora_transfer_pruning.usecase.local_pruning import LocalPruning
 from pruning_lens.adapter.transfer_pruning.transfer_pruning_tracer import TransferPruningTracer
-from pruning_lens.adapter.base_tracer import BaseTracer
 from pruning_lens.adapter.torch_pruning.torch_pruning_tracer import TorchPruningTracer
 from pruning_lens.core.pruning_trace import PruningTrace
+from pruning_lens.core.hook_names_filter import HookNamesFilter
 
 class PruneAndCaptureUsecase:
     
@@ -71,7 +69,7 @@ class PruneAndCaptureUsecase:
         '''
         localPruning = LocalPruning(model, tokens)
         prune_task_plan = localPruning.get_torch_pruning_groups_and_structural_setups(prune_task)
-        names_filter = PruneAndCaptureUsecase._get_trace_names_filter(model, prune_task_plan.groups, names_filter)
+        names_filter = HookNamesFilter.filter(model, prune_task_plan.groups, names_filter)
         # This is a single-model trace, not a named multi-adapter training plan.
         localPruning.prepare_model_to_transfer_pruning_from_groups(
             prune_task_plan.groups, rescale=False
@@ -108,7 +106,7 @@ class PruneAndCaptureUsecase:
         '''
         localPruning = LocalPruning(model, tokens)
         prune_task_plan = localPruning.get_torch_pruning_groups_and_structural_setups(prune_task)
-        names_filter = PruneAndCaptureUsecase._get_trace_names_filter(model, prune_task_plan.groups, names_filter)
+        names_filter = HookNamesFilter.filter(model, prune_task_plan.groups, names_filter)
 
         for setup in prune_task_plan.structural_setups:
             setup()
@@ -123,29 +121,4 @@ class PruneAndCaptureUsecase:
             groups=prune_task_plan.groups,
         )
 
-    @staticmethod
-    def _get_trace_names_filter(
-        model: TransformerBridge,
-        groups: list[tp.Group],
-        names_filter: str | Sequence[str] | Callable[[str], bool] | None,
-    ) -> str | Sequence[str] | Callable[[str], bool]:
-        '''Auto-select affected linear hooks; reject empty selection before mutation.
-        '''
-        if names_filter is None:
-            names_filter = list(dict.fromkeys(
-                hook.name
-                for hook, _ in BaseTracer.iter_pruned_linear_hooks(model, groups)
-                if hook.name is not None
-            ))
-        if isinstance(names_filter, str):
-            has_hooks = names_filter in model.hook_dict
-        elif callable(names_filter):
-            has_hooks = any(names_filter(name) for name in model.hook_dict)
-        else:
-            has_hooks = any(name in model.hook_dict for name in names_filter)
-        if not has_hooks:
-            raise ValueError(
-                "No hook points selected for capture. For an empty prune_task or "
-                "groups without supported linear hooks, provide explicit names_filter."
-            )
-        return names_filter
+
