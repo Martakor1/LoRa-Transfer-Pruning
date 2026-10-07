@@ -62,7 +62,7 @@ class PruningInstrumentor:
                 return PruningInstrumentor.ablate_activation_in_linear_module(tensor, pruned_rows, rescale)
         
         hook_out_fn = hook_for_rows
-        if (module.name in ["q_proj", "k_proj", "v_proj"]):
+        if (module.name in ["q_proj", "k_proj", "v_proj"]): #module name will return q_proj, not q for deepseek and for llama, even if module bridge called like attn.q or attn.q_proj
             hook_out_fn = PruningInstrumentor._flatten_heads_wrapper(hook_for_rows)
 
         return hook_out_fn
@@ -145,6 +145,10 @@ class PruningInstrumentor:
         '''
         
         def wrappedHook(tensor: torch.Tensor, hook: HookPoint) -> torch.Tensor:
+            if len(tensor.shape) != 4: #in case if there is no n_heads in config or if it is deepseek with it's attn.q_proj instead of attn.q.
+                #see TransformerLens/transformer_lens/model_bridge/generalized_components/attention.py#_setup_qkv_hook_reshaping
+                return cast(torch.Tensor, hook_fn(tensor, hook=hook))
+            
             original_shape = tensor.shape
             # [B, S, H, D] → [B, S, H*D]
             tensor = tensor.flatten(-2)

@@ -9,7 +9,7 @@ from pruning_lens.adapter.torch_pruning.torch_pruning_tracer import TorchPruning
 from pruning_lens.adapter.transfer_pruning.transfer_pruning_tracer import TransferPruningTracer
 from pruning_lens.core.compairing_trace import CompairingTrace
 from pruning_lens.core.great_comparator import GreatComparator
-from pruning_lens.core.hook_names_filter import HookNamesFilter
+from .hook_names_filter import HookNamesFilter
 from pruning_lens.core.pruning_trace import PruningTrace
 
 class ComparePrunedModelsUsecase:
@@ -26,6 +26,7 @@ class ComparePrunedModelsUsecase:
         rtol: float = 1e-3,
         store_difference: bool = True,
         print_summary: bool = True,
+        each_module_independently: bool = False,
     ) -> tuple[CompairingTrace, PruningTrace, PruningTrace]:
         '''Compare transfer pruning and torch_pruning traces on a subset of layers.
         
@@ -41,7 +42,9 @@ class ComparePrunedModelsUsecase:
             names_filter=lambda name: name.startswith(tuple(f"blocks.{layer}." for layer in layers)),
             compute_gradient=compute_gradient,
             atol=atol, rtol=rtol,
-            store_difference=store_difference, print_summary=print_summary,
+            store_difference=store_difference, 
+            print_summary=print_summary,
+            each_module_independently=each_module_independently
         )
 
     @staticmethod
@@ -56,6 +59,7 @@ class ComparePrunedModelsUsecase:
         rtol: float = 1e-3,
         store_difference: bool = True,
         print_summary: bool = True,
+        each_module_independently: bool = False,
     ) -> tuple[CompairingTrace, PruningTrace, PruningTrace]:
         '''Capture SP then TP using ONE plan, including identical fractional indices.
         

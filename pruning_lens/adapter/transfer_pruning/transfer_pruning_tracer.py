@@ -7,6 +7,7 @@ from pruning_lens.core.pruning_trace import PruningTrace
 from pruning_lens.adapter.base_tracer import BaseTracer
 import torch_pruning as tp
 from pruning_lens.core.activation_corruption import ActivationCorruption
+from lora_transfer_pruning.adapter.torch_pruning.tp_utils import iter_pruned_linear_hooks
 
 
 class TransferPruningTracer(BaseTracer):
@@ -25,7 +26,7 @@ class TransferPruningTracer(BaseTracer):
 
         if (compute_gradient):
             #correct gradients from grad incoming in (x * mask) to grad incoming in x (grad = grad * mask)
-            for hook, idxs in BaseTracer.iter_pruned_linear_hooks(model, groups):
+            for hook, idxs in iter_pruned_linear_hooks(model, groups):
                 if (hook.name is None or hook.name not in corruptions_upon_gradient_cache):
                     continue
                 gradient = gradient_cache.gradients.get(hook.name)

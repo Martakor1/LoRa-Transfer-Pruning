@@ -7,7 +7,7 @@ from lora_transfer_pruning.usecase.local_pruning import LocalPruning
 from pruning_lens.adapter.transfer_pruning.transfer_pruning_tracer import TransferPruningTracer
 from pruning_lens.adapter.torch_pruning.torch_pruning_tracer import TorchPruningTracer
 from pruning_lens.core.pruning_trace import PruningTrace
-from pruning_lens.core.hook_names_filter import HookNamesFilter
+from .hook_names_filter import HookNamesFilter
 
 class PruneAndCaptureUsecase:
     

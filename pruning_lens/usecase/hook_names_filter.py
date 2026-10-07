@@ -1,12 +1,10 @@
 from typing import Callable, Sequence, cast
 import warnings
 
-from pruning_lens.adapter.base_tracer import BaseTracer
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
 from transformer_lens.model_bridge.transformer_bridge import TransformerBridge
 import torch_pruning as tp
-from lora_transfer_pruning.adapter.torch_pruning.tp_utils import get_active_module_in_dep_graph_from_linear_bridge
-
+from lora_transfer_pruning.adapter.torch_pruning.tp_utils import get_active_module_in_dep_graph_from_linear_bridge, iter_pruned_linear_hooks
 
 class HookNamesFilter:
     
@@ -120,6 +118,6 @@ class HookNamesFilter:
         '''
         return list(dict.fromkeys(
             hook.name
-            for hook, _ in BaseTracer.iter_pruned_linear_hooks(model, groups)
+            for hook, _ in iter_pruned_linear_hooks(model, groups)
             if hook.name is not None
         ))
