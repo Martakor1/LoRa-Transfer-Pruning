@@ -81,7 +81,7 @@ class DeepseekV2StructuralSetup:
             dtype=torch.long,
         )
 
-        print(f"module={bridge_name} DeepSeek indices from group:")
+        print(f"SETUP FUNCTION MSG: module={bridge_name} DeepSeek indices from group:")
         print(f"  q_local={q_local.tolist()}")
         print(f"  q_nope={nope_local.tolist()}")
         print(f"  q_rope={rope_local.tolist()}")

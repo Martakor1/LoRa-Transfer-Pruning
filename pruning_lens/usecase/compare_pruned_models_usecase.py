@@ -9,7 +9,8 @@ from pruning_lens.adapter.torch_pruning.torch_pruning_tracer import TorchPruning
 from pruning_lens.adapter.transfer_pruning.transfer_pruning_tracer import TransferPruningTracer
 from pruning_lens.core.compairing_trace import CompairingTrace
 from pruning_lens.core.great_comparator import GreatComparator
-from .hook_names_filter import HookNamesFilter
+from pruning_lens.core.pruning_trace import PruningTrace
+from pruning_lens.adapter.hook_names_filter import HookNamesFilter
 from pruning_lens.core.pruning_trace import PruningTrace
 
 class ComparePrunedModelsUsecase:
@@ -26,13 +27,18 @@ class ComparePrunedModelsUsecase:
         rtol: float = 1e-3,
         store_difference: bool = True,
         print_summary: bool = True,
-        each_module_independently: bool = False,
+        local_gradients: bool = False,
     ) -> tuple[CompairingTrace, PruningTrace, PruningTrace]:
-        '''Compare transfer pruning and torch_pruning traces on a subset of layers.
+        '''Compare transfer pruning and torch_pruning traces on a subset of layers. <b>Corrupt the model by torch_pruning!</b>  
         
         Select hooks by layer prefix; intermediate hooks can be UNRESOLVED if we can't handle their defects (like shape change with torch pruning in hook_rot_q or hook_q_input).
 
         Unsupported TransformerLens conversions (inside HookPoints) can raise in the capture adapters.
+        Args:
+            local_gradients: If True, compute gradients for each hookpoint independently (independent loss for every module) and compare them as well.
+                This is useful for debugging and understanding the impact of pruning on the model's gradients locally, without impact of other module's grads.
+                
+                Note: grads for hook_out always be just ones. For compairing see hook_in.
         '''
         if not layers or any(layer < 0 for layer in layers):
             raise ValueError("layers must be a nonempty list of nonnegative layer indices")
@@ -44,7 +50,7 @@ class ComparePrunedModelsUsecase:
             atol=atol, rtol=rtol,
             store_difference=store_difference, 
             print_summary=print_summary,
-            each_module_independently=each_module_independently
+            local_gradients=local_gradients
         )
 
     @staticmethod
@@ -59,9 +65,9 @@ class ComparePrunedModelsUsecase:
         rtol: float = 1e-3,
         store_difference: bool = True,
         print_summary: bool = True,
-        each_module_independently: bool = False,
+        local_gradients: bool = False,
     ) -> tuple[CompairingTrace, PruningTrace, PruningTrace]:
-        '''Capture SP then TP using ONE plan, including identical fractional indices.
+        '''Capture SP then TP using ONE plan, including identical fractional indices. <b>Corrupt the model by torch_pruning!</b>  
         
         Support only <b>linear</b> hooks (hooks above linear layers), because only for them we can reconstruct shape defects (we see them as idxs inside torch_pruning groups).
 
@@ -76,6 +82,11 @@ class ComparePrunedModelsUsecase:
         names_filter=None selects affected linear hooks, not an upstream anchor.
         For gradients include a real grad-enabled upstream point on each branch
         (see BaseTracer). Missing gradients are reported as NO_GRAD, never OK.
+        Args:
+            local_gradients: If True, compute gradients for each hookpoint independently (independent .loss() for every module) and compare them as well.
+                This is useful for debugging and understanding the impact of pruning on the model's gradients locally, without impact of other module's grads.   
+        
+                Note: grads for hook_out always be just ones. For compairing see hook_in.
         '''
 
         if torch.is_inference_mode_enabled():
@@ -106,8 +117,12 @@ class ComparePrunedModelsUsecase:
                     try:
                         local_pruning.prepare_model_to_transfer_pruning_from_groups(prune_task_plan.groups, rescale=False)
                         transfer_pruning_trace = TransferPruningTracer.capture_hookpoints_activations_with_defects(
-                            model, tokens, names_filter=names_filter,
-                            compute_gradient=compute_gradient, groups=prune_task_plan.groups,
+                            model, 
+                            tokens, 
+                            names_filter=names_filter,
+                            compute_gradient=compute_gradient, 
+                            groups=prune_task_plan.groups,
+                            local_gradients=local_gradients
                         ).to_cpu()
                     finally:
                         model.reset_hooks()
@@ -121,8 +136,12 @@ class ComparePrunedModelsUsecase:
                     for device, state in cuda_states.items():
                         torch.cuda.set_rng_state(state, device)
                     torch_pruning_trace = TorchPruningTracer.capture_hookpoints_activations_with_defects(
-                        model, tokens, names_filter=names_filter,
-                        compute_gradient=compute_gradient, groups=prune_task_plan.groups,
+                        model, 
+                        tokens,
+                        names_filter=names_filter,
+                        compute_gradient=compute_gradient,
+                        groups=prune_task_plan.groups,
+                        local_gradients=local_gradients
                     ).to_cpu()
 
 

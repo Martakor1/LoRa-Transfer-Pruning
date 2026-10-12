@@ -7,7 +7,7 @@ from lora_transfer_pruning.usecase.local_pruning import LocalPruning
 from pruning_lens.adapter.transfer_pruning.transfer_pruning_tracer import TransferPruningTracer
 from pruning_lens.adapter.torch_pruning.torch_pruning_tracer import TorchPruningTracer
 from pruning_lens.core.pruning_trace import PruningTrace
-from .hook_names_filter import HookNamesFilter
+from pruning_lens.adapter.hook_names_filter import HookNamesFilter
 
 class PruneAndCaptureUsecase:
     
@@ -49,7 +49,8 @@ class PruneAndCaptureUsecase:
                                 tokens: torch.Tensor,
                                 prune_task: ModelPruneTask,
                                 compute_gradient: bool = True,
-                                names_filter: str | Sequence[str] | Callable[[str], bool] | None = None
+                                names_filter: str | Sequence[str] | Callable[[str], bool] | None = None,
+                                local_gradients: bool = False
                                 ) -> PruningTrace:
         '''Prepare simulation pruning in place and capture activations/gradients.
 
@@ -80,6 +81,7 @@ class PruneAndCaptureUsecase:
             names_filter=names_filter,
             compute_gradient=compute_gradient,
             groups=prune_task_plan.groups,
+            local_gradients=local_gradients
         )
 
     @staticmethod
@@ -89,6 +91,7 @@ class PruneAndCaptureUsecase:
         prune_task: ModelPruneTask,
         compute_gradient: bool = True,
         names_filter: str | Sequence[str] | Callable[[str], bool] | None = None,
+        local_gradients: bool = False
     ) -> PruningTrace:
         '''Apply structural pruning in place and capture its trace.
 
@@ -119,6 +122,7 @@ class PruneAndCaptureUsecase:
             names_filter=names_filter,
             compute_gradient=compute_gradient,
             groups=prune_task_plan.groups,
+            local_gradients=local_gradients
         )
 
 

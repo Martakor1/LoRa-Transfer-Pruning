@@ -82,7 +82,7 @@ class HookNamesFilter:
     
     @staticmethod
     def convert_to_only_models_names(model: TransformerBridge, 
-                                 names_filter: str | Sequence[str] | Callable[[str], bool],
+                                 names_filter: str | Sequence[str] | Callable[[str], bool] | None,
                                  ) -> Sequence[str]:
         '''Filter names_filter to only include names in model.hook_dict and return only Sequence or None.
         '''
@@ -93,7 +93,7 @@ class HookNamesFilter:
         elif callable(names_filter):
             has_hooks = any(names_filter(name) for name in model.hook_dict)
             names_filter = [name for name in model.hook_dict if names_filter(name)]
-        else:
+        elif isinstance(names_filter, Sequence):
             new_names_filter = []
             for name in names_filter:
                 if name in model.hook_dict:
@@ -101,6 +101,8 @@ class HookNamesFilter:
                     new_names_filter.append(name)
                 
             names_filter = new_names_filter
+        else:
+            names_filter = []
         if not has_hooks:
             raise ValueError(
                 "No hook points selected for capture. For an empty prune_task or "
