@@ -168,6 +168,9 @@ class PruningInstrumentor:
         Args:
             activation (torch.Tensor): The activation tensor to be ablated. (B, N, H)
         """
+        # Offload/device-transfer hooks (in experiments) may move pruned_indices after instrumentation.
+        #need to ensure, that pruned_indices is on the same device as activation
+        pruned_indices = pruned_indices.to(device=activation.device)
         new_activation = activation.index_fill(-1, pruned_indices, 0.0)
         #is rescaling valid for many heads in one dim in qkvo TODO
         if (rescale): #TODO make two different methods for faster execution without rescale param???

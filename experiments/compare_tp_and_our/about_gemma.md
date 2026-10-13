@@ -32,6 +32,8 @@ model.layers[6].mlp.gate_proj.weight.data_ptr() \
 
 ## Что означает `is_kv_shared_layer`
 
+Описание KV ниже сверено 2026-10-13 с установленным `transformers/models/gemma4/modeling_gemma4.py`, классами `Gemma4TextAttention` и `Gemma4TextModel`. В текущей реализации межслойное sharing использует отдельный `shared_kv_states`, а не `past_key_values.shared_layers`.
+
 Gemma 4 умеет делать cross-layer KV sharing: последние `num_kv_shared_layers` слоёв не вычисляют собственные `K` и `V`, а используют KV из более раннего слоя того же типа.
 
 Граница вычисляется так:
@@ -42,7 +44,7 @@ first_kv_shared_layer_idx = (
 )
 
 self.is_kv_shared_layer = (
-    layer_idx >= first_kv_shared_layer_idx > 0
+    layer_idx >= first_kv_shared_layer_idx >= 0
 )
 ```
 
@@ -63,10 +65,11 @@ sliding_attention
 full_attention
 ```
 
-Поэтому shared-слой ищет последний обычный слой именно своего типа:
+Поэтому источником становится последний обычный слой именно соответствующего типа. Индекс источника можно вычислить так (это поясняющая локальная переменная, не поле `kv_shared_layer_index` текущего attention):
 
 ```python
-self.kv_shared_layer_index = (
+prev_layers = config.layer_types[:first_kv_shared_layer_idx]
+source_layer_idx = (
     len(prev_layers)
     - 1
     - prev_layers[::-1].index(config.layer_types[layer_idx])
@@ -93,38 +96,46 @@ query_states = self.q_proj(hidden_states)
 Shared только `K` и `V`:
 
 ```python
-key_states, value_states = (
-    past_key_values.shared_layers[self.kv_shared_layer_index]
-)
+key_states, value_states = shared_kv_states[self.layer_type]
 ```
 
 Таким образом, верхние слои задают разные запросы к одному и тому же сохранённому представлению предыдущего слоя.
+
+В конфиге класса `num_kv_shared_layers` по умолчанию равен 0, но в чекпойнте `google/gemma-4-E4B-it` заданы 42 слоя и 18 shared-слоёв. При загрузке через `from_pretrained` используются значения чекпойнта:
+
+- слои 0–23 вычисляют собственные KV;
+- слой 22 — источник sliding KV для sliding-слоёв среди 24–41;
+- слой 23 — источник full KV для слоёв 29, 35 и 41;
+- у shared-потребителей 24–41 собственные `k_proj`, `v_proj`, `k_norm` и `v_norm` не создаются; собственные `q_proj`, `q_norm` и `o_proj` остаются.
 
 ## Зачем `store_full_length_kv`
 
 Последний non-shared слой каждого типа назначается источником:
 
 ```python
-self.store_full_length_kv = layer_idx == last_non_shared_layer_of_same_type
+self.store_full_length_kv = (
+    not self.is_kv_shared_layer
+    and layer_idx == last_non_shared_layer_of_same_type
+)
 ```
 
 После вычисления его KV делается дополнительное сохранение:
 
 ```python
-past_key_values.shared_layers[self.layer_idx] = (
+shared_kv_states[self.layer_type] = (
     key_states,
     value_states,
 )
 ```
 
-Это отдельный словарь поверх стандартного HF cache:
+Это отдельный объект, не поле стандартного HF cache. В текстовой модели он по умолчанию создаётся заново для текущего forward как `UserDict()`; также может передаваться явно через kwargs:
 
 ```text
-past_key_values
-├── стандартный KV cache по layer_idx
-└── shared_layers
-    ├── индекс source sliding layer → его полные K,V
-    └── индекс source full layer    → его полные K,V
+past_key_values: KV прошлых токенов по layer_idx, между вызовами модели
+
+shared_kv_states: KV источников для переиспользования между слоями
+├── "sliding_attention" → K,V sliding-источника
+└── "full_attention"    → K,V full-источника
 ```
 
 Почему нельзя просто обратиться к стандартному cache другого слоя:
@@ -142,24 +153,40 @@ value_states = value_states.to(query_states.device)
 
 Название `store_full_length_kv` слегка сбивает с толку: оно не означает «этот слой делает full attention». Оно означает «сохрани результат этого source-слоя для последующего cross-layer reuse».
 
-## Странность с `past_key_values is not None`
+## Зачем `past_key_values` и чем он отличается от sharing
 
-Шаринг фактически включается только при наличии cache:
+`past_key_values` — авторегрессионный cache. После обработки префикса при генерации можно подавать только новые токены, не пересчитывая все предыдущие. Обычный слой вычисляет новые K/V и вызывает:
 
 ```python
-if self.is_kv_shared_layer and past_key_values is not None:
-    # reuse
-else:
-    # вычислить собственные K/V
+if past_key_values is not None and not self.is_kv_shared_layer:
+    key_states, value_states = past_key_values.update(
+        key_states, value_states, self.layer_idx
+    )
+
+if self.store_full_length_kv:
+    shared_kv_states[self.layer_type] = key_states, value_states
 ```
 
-Следовательно:
+`update()` не только сохраняет новые K/V, но и возвращает K/V для текущего attention с учётом истории. Для full attention это концептуально объединение прошлых и новых K/V; sliding cache дополнительно управляет окном. Поэтому отдельного чтения cache в attention не требуется: результат `update()` уже присвоен `key_states, value_states`.
 
-- `use_cache=True`: shared-слои реально переиспользуют KV;
-- `use_cache=False`: каждый слой вычисляет собственные KV;
-- `k_proj` и иногда `v_proj` существуют даже у shared-слоёв, чтобы поддерживать путь без cache, обучение, checkpointing и совместимость с общим API.
+Shared-потребители не обновляют отдельный cache, а берут K/V источника из `shared_kv_states`. Это происходит независимо от наличия авторегрессионного cache:
 
-Это заметное отличие от обычной Llama: поведение KV-sharing здесь завязано на специальное расширение cache, а не только на математическую структуру слоя.
+```python
+if self.is_kv_shared_layer:
+    key_states, value_states = shared_kv_states[self.layer_type]
+else:
+    # Вычислить собственные K/V.
+    ...
+```
+
+Итого:
+
+- `use_cache=True`, cache не передан: модель создаёт `DynamicCache`, который возвращается для следующих шагов генерации;
+- `use_cache=False` и `past_key_values=None`: нет накопления KV между вызовами, но межслойное sharing продолжает работать;
+- если явно передать непустой `past_key_values`, показанная ветка `update()` проверяет именно его наличие, а не флаг `use_cache`; для запуска без cache нужно не передавать его;
+- выбор `eager`/`sdpa` не включает и не выключает sharing: attention backend выбирается после подготовки K/V.
+
+В `pruning_sweep.py` используется `use_cache=False` без переданного cache. Поэтому межслойные shared-KV зависимости остаются и должны учитываться при прунинге. Различия autograd-графов eager/SDPA могут влиять на автоматическое распространение зависимостей Torch-Pruning, но не означают, что само KV sharing перестало работать.
 
 ## Другие фундаментальные отличия от Llama
 

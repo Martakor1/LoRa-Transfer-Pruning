@@ -25,7 +25,6 @@ class TorchPruningGroupMapper:
         
         Provide `prune_task_name` if you use LoRA and need to prepare pruning for a specific pruning task (e.g. only for specific LoRA adapter) (transfer pruning).
         The pruning hooks will be active only when concrete LoRA adapter is active.'''
-        device = model_bridge.device
         if (prune_task_name is not None):
             if (active_adapters_source is None):
                 raise ValueError("active_adapters_source must be provided when prune_task_name is provided.")
@@ -34,9 +33,9 @@ class TorchPruningGroupMapper:
             #don't add activation hooks on internal and backward operations
             if (not type(dep.layer).__module__.startswith("torch_pruning.ops")):
                 out_channels_need_to_be_pruned = dep.pruning_fn.__name__.endswith("out_channels")
-                idxs = torch.tensor(idxs, device=device)
                 
                 if (isinstance(dep.layer, torch.nn.Linear)):
+                    idxs = torch.tensor(idxs, device=dep.layer.weight.device, dtype=torch.long)
                     #no need to add hooks for modules changed in in_channels, 
                     #because activation already was pruned (zeroed) in previous out
                     if (out_channels_need_to_be_pruned or (i == 0)):

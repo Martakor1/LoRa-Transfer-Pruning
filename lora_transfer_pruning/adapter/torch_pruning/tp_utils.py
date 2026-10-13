@@ -2,6 +2,7 @@ from typing import Callable, cast, Iterator
 
 import peft
 from torch import nn
+import torch
 import torch_pruning as tp
 
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
@@ -79,3 +80,13 @@ def iter_pruned_linear_hooks(
             visited_hooks.add(hook.name)
             
             yield hook, idxs
+
+def get_device(module: LinearBridge) -> torch.device:
+    '''Get device of the module's original component.'''
+    if isinstance(module._original_component, nn.Linear):
+        return module._original_component.weight.device
+    elif isinstance(module._original_component, peft.tuners.lora.layer.Linear):
+        return cast(torch.device, module._original_component.base_layer.weight.device)
+    else:
+        raise TypeError(
+            f"Unsupported module type {type(module._original_component)} for getting device.")

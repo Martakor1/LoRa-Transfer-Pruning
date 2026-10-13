@@ -221,4 +221,5 @@ __marimo__/
 
 *.nsys-rep
 experiments/transformer_lens_performance/result_traces
+experiments/compare_tp_and_our/greate_comparator_metrics/sweep_results
 *.pickle

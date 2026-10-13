@@ -55,6 +55,22 @@ class LocalPruning:
                         groupPruneTask
                     )
                 )
+                
+        #----------TODO remove this case for gemma4, make this chek when build prune_task, not when it is already built, like for kv_lora_idxs_deepseek???
+        unique_groups = []
+        gemma_families = {}
+        for group, setup in pruning_groups:
+            family = getattr(group, 'gemma_kv_family', None)
+            if family is not None:
+                indices = group.gemma_local_indices
+                if family in gemma_families:
+                    if gemma_families[family] != indices:
+                        raise ValueError(f'Conflicting pruning masks for shared Gemma KV family {family}; specify one root per family')
+                    continue
+                gemma_families[family] = indices
+            unique_groups.append((group, setup))
+        pruning_groups = unique_groups
+        #-------------------------------
         groups = [group for group, _ in pruning_groups]
         setups = [setup for _, setup in pruning_groups]
         return PruneTaskPlan(prune_task.name, groups, setups)
