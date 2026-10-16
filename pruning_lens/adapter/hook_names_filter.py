@@ -45,12 +45,14 @@ class HookNamesFilter:
         """Filter names_filter to only include hooks that are present in the model's hook_dict and that are ebabled.
         If names_filter is None, create a names_filter from pruned linear modules from `groups`"""
         if names_filter is None:
-            return HookNamesFilter.create_names_filter_from_pruned_linear_modules(model, groups)
+            names_filter = HookNamesFilter.create_names_filter_from_pruned_linear_modules(model, groups)
         
         names_filter = HookNamesFilter.convert_to_only_models_names(model, names_filter)
         names_filter = HookNamesFilter.filter_only_enabled_hooks(model, names_filter)
         if (only_with_grad):
             names_filter = HookNamesFilter.filter_only_enabled_grad_hooks(model, names_filter)
+        if not names_filter:
+            raise ValueError("No hook points selected for gradient capture after filtering")
         return names_filter
     
     @staticmethod

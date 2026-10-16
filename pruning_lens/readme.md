@@ -153,7 +153,7 @@ dL/dx = dL/dy * mask
 
 `TransferPruningTracer` adjusts SP gradients using pruning indices. Comparison covers **all restored coordinates**, including removed ones. There are no `comparison_scope` / `gradient_scope` modes, retained-only masking, or excluded-element counters; differences at removed coordinates contribute to the metrics.
 
-The current correction needs further validation: `gradient[idxs] = 0` indexes the first axis of the cached tensor, whereas group indices refer to channels in the native layout, usually on the last axis. Head conversions also require accounting for the layout transformation. The intended gradient normalization does not imply that the current indexing is correct for every tensor shape.
+The correction first reverses the recorded layout conversions to recover native channel coordinates, then zeros the removed channels on the last axis with `index_fill_(-1, indices, 0.0)`. Finally, it reapplies the hook conversion so the gradient retains the same cached layout as the activation. This also handles head-split tensors without mistaking a head-local axis for the original Linear channel axis.
 
 ## Comparison results
 
