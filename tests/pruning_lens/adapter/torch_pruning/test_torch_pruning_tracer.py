@@ -19,7 +19,6 @@ from transformer_lens.tools.analysis.attribution_patching import GradientCache
 
 from pruning_lens.adapter.torch_pruning.torch_pruning_tracer import (
     TorchPruningTracer,
-    UnknownPruningMappingWarning,
 )
 from pruning_lens.core.activation_corruption import RemovedChannelsDefect
 
@@ -52,6 +51,14 @@ def cache_for(**activations):
     return GradientCache(activations, {name: None for name in activations}, torch.tensor(0.0))
 
 
+def append_group_defects(cache, model, groups):
+    corruptions = TorchPruningTracer._get_conversion_corruptions(cache, model)
+    return TorchPruningTracer._append_defects(
+        cache, model, groups, corruptions_upon_gradient_cache=corruptions,
+        compute_gradient=False,
+    )
+
+
 def group_for(model, *operations):
     '''Synthetic groups for metadata/error tests; integration tests build real DGs.'''
     group = tp.Group()
@@ -76,13 +83,13 @@ def test_real_pruning_capture_and_restore(compute_gradient):
         model, tokens, model.first.original_component, tp.prune_linear_out_channels, [1, 4]
     )
     group.prune()
-    with pytest.warns(UnknownPruningMappingWarning, match="hook_intermediate") as caught:
+    with warnings.catch_warnings(record=True) as caught:
         trace = TorchPruningTracer.capture_hookpoints_activations_with_defects(
             model, tokens, names_filter=lambda _: True,
             compute_gradient=compute_gradient, groups=[group],
         )
-    assert len(caught) == 1
-    assert trace.unresolved_pruning_hooks == {"hook_intermediate"}
+    assert not caught
+    assert trace.unresolved_pruning_hooks == set()
     assert trace.corruptions["first.hook_in"].defects == []
     assert trace.corruptions["last.hook_out"].defects == []
     expected = original_first_out.clone()
@@ -99,7 +106,8 @@ def test_real_pruning_capture_and_restore(compute_gradient):
             assert torch.count_nonzero(grad[..., [1, 4]]) == 0
         else:
             assert trace.gradients[name] is None
-    assert "hook_intermediate" in trace.activations
+    assert trace.activations["hook_intermediate"].shape == (2, 3, 4)
+    assert trace.corruptions["hook_intermediate"].defects == []
 
 
 def test_conversion_is_undone_before_inserting_channels():
@@ -171,7 +179,7 @@ def test_pruning_conversion_backward_requires_upstream_anchor(
     trace = TorchPruningTracer.capture_hookpoints_activations_with_defects(
         model, tokens, names_filter=names, compute_gradient=True, groups=[group],
     )
-    assert not trace.unresolved_pruning_hooks
+    assert trace.unresolved_pruning_hooks == set()
     torch.testing.assert_close(trace.metric, native_loss.detach())
     torch.testing.assert_close(trace.metric, masked_loss.detach())
     torch.testing.assert_close(trace.activations[hook_name], conversion.convert(native.detach()))
@@ -204,7 +212,7 @@ def test_canonical_hook_indices_are_snapshotted():
     group = group_for(model, (module, tp.prune_linear_out_channels, [7, 2, 7]))
     activation = torch.randn(1, 2, 6)
     cache = cache_for(**{"first.hook_out": activation})
-    trace = TorchPruningTracer._append_defects(cache, model, [group])
+    trace = append_group_defects(cache, model, [group])
     group[0].idxs.clear()
     assert trace.activations is cache.activations
     assert trace.gradients is cache.gradients
@@ -214,17 +222,15 @@ def test_canonical_hook_indices_are_snapshotted():
         assert trace.corruptions[name].defects[0].restore_info.tolist() == [2, 7]
 
 
-def test_unknown_groups_are_distinct_from_known_empty_groups():
+@pytest.mark.parametrize("groups", [None, []])
+def test_hooks_without_group_mapping_keep_only_conversion_metadata(groups):
     model = LinearModel()
     cache = cache_for(**{"first.hook_out": torch.randn(1, 2, 6)})
-    with pytest.warns(UnknownPruningMappingWarning, match="not provided"):
-        unknown = TorchPruningTracer._append_defects(cache, model, groups=None)
     with warnings.catch_warnings(record=True) as caught:
-        known = TorchPruningTracer._append_defects(cache, model, groups=[])
+        trace = append_group_defects(cache, model, groups=groups)
     assert not caught
-    assert unknown.unresolved_pruning_hooks == {"first.hook_out"}
-    assert known.unresolved_pruning_hooks == set()
-    assert known.corruptions["first.hook_out"].defects == []
+    assert trace.unresolved_pruning_hooks == set()
+    assert trace.corruptions["first.hook_out"].defects == []
 
 
 def test_group_direction_selects_the_correct_hook_of_the_same_linear():
@@ -238,21 +244,22 @@ def test_group_direction_selects_the_correct_hook_of_the_same_linear():
         "first.hook_in": torch.randn(1, 2, 6),
         "first.hook_out": torch.randn(1, 2, 6),
     })
-    trace = TorchPruningTracer._append_defects(cache, model, [group])
+    trace = append_group_defects(cache, model, [group])
     assert trace.corruptions["first.hook_in"].defects[0].restore_info.tolist() == [0]
     assert trace.corruptions["first.hook_out"].defects[0].restore_info.tolist() == [4]
 
 
-def test_alias_is_unresolved_but_canonical_hook_receives_defect():
+def test_pruning_indices_are_attached_only_to_canonical_group_names():
     model = LinearModel()
     model.hook_dict["hook_q"] = model.first.hook_out
     group = group_for(model, (model.first.original_component, tp.prune_linear_out_channels, [1]))
     names = ["first.hook_out", "hook_q"]
     cache = cache_for(**{name: torch.randn(1, 2, 6) for name in names})
-    with pytest.warns(UnknownPruningMappingWarning, match="hook_q"):
-        trace = TorchPruningTracer._append_defects(cache, model, [group])
+    with warnings.catch_warnings(record=True) as caught:
+        trace = append_group_defects(cache, model, [group])
+    assert not caught
     assert set(trace.corruptions) == set(names)
-    assert trace.unresolved_pruning_hooks == {"hook_q"}
+    assert trace.unresolved_pruning_hooks == set()
     assert trace.corruptions["hook_q"].defects == []
     assert trace.corruptions["first.hook_out"].defects[0].restore_info.tolist() == [1]
 
@@ -262,7 +269,7 @@ def test_dependency_display_name_is_not_used_as_module_path():
     group = group_for(model, (model.first.original_component, tp.prune_linear_out_channels, [1]))
     group[0].dep.target.name = "not.a.module.path (Linear(in_features=6, out_features=6))"
     cache = cache_for(**{"first.hook_out": torch.randn(1, 2, 6)})
-    trace = TorchPruningTracer._append_defects(cache, model, [group])
+    trace = append_group_defects(cache, model, [group])
     assert trace.corruptions["first.hook_out"].defects[0].restore_info.tolist() == [1]
 
 
@@ -271,9 +278,10 @@ def test_intermediate_hook_keeps_conversions_but_not_neighbor_indices():
     model.hook_intermediate.hook_conversion = RearrangeTensorConversion("b s (h d) -> b s h d", h=2)
     cache = cache_for(hook_intermediate=torch.randn(1, 3, 2, 3))
     group = group_for(model, (model.first.original_component, tp.prune_linear_out_channels, [2]))
-    with pytest.warns(UnknownPruningMappingWarning):
-        trace = TorchPruningTracer._append_defects(cache, model, [group])
-    assert trace.unresolved_pruning_hooks == {"hook_intermediate"}
+    with warnings.catch_warnings(record=True) as caught:
+        trace = append_group_defects(cache, model, [group])
+    assert not caught
+    assert trace.unresolved_pruning_hooks == set()
     assert len(trace.corruptions["hook_intermediate"].defects) == 1
     assert not isinstance(trace.corruptions["hook_intermediate"].defects[0], RemovedChannelsDefect)
 
@@ -288,10 +296,10 @@ def test_norm_parameter_in_group_does_not_imply_linear_coverage():
         "norm.hook_in": torch.randn(1, 2, 6),
         "norm.hook_out": torch.randn(1, 2, 6),
     })
-    with pytest.warns(UnknownPruningMappingWarning) as caught:
-        trace = TorchPruningTracer._append_defects(cache, model, [group])
-    assert len(caught) == 1
-    assert trace.unresolved_pruning_hooks == set(cache.activations)
+    with warnings.catch_warnings(record=True) as caught:
+        trace = append_group_defects(cache, model, [group])
+    assert not caught
+    assert trace.unresolved_pruning_hooks == set()
     assert all(not corruption.defects for corruption in trace.corruptions.values())
 
 
@@ -312,6 +320,7 @@ def test_lora_real_groups_respect_outer_and_rank_dimensions(direction):
         model, tokens, names_filter=["first.hook_in", "first.hook_out"],
         compute_gradient=False, groups=[group],
     )
+    assert trace.unresolved_pruning_hooks == set()
     for boundary in ("in", "out"):
         defects = trace.corruptions[f"first.hook_{boundary}"].defects
         if direction == boundary:
@@ -328,7 +337,7 @@ def test_lora_uses_selected_adapter_boundary_without_checking_base(direction):
     adapter = lora.lora_A["default"] if direction == "in" else lora.lora_B["default"]
     group = group_for(model, (adapter, handler, [1]), (lora.base_layer, handler, [2]))
     cache = cache_for(**{f"first.hook_{direction}": torch.randn(1, 2, 6)})
-    trace = TorchPruningTracer._append_defects(cache, model, [group])
+    trace = append_group_defects(cache, model, [group])
     assert trace.corruptions[f"first.hook_{direction}"].defects[0].restore_info.tolist() == [1]
 
 
@@ -343,7 +352,7 @@ def test_lora_uses_only_the_current_active_adapter(active_adapter):
         (lora.lora_B["second"], tp.prune_linear_out_channels, [2]),
     )
     cache = cache_for(**{"first.hook_out": torch.randn(1, 2, 6)})
-    trace = TorchPruningTracer._append_defects(cache, model, [group])
+    trace = append_group_defects(cache, model, [group])
     expected = [1] if active_adapter == "default" else [2]
     assert trace.corruptions["first.hook_out"].defects[0].restore_info.tolist() == expected
 
@@ -355,7 +364,7 @@ def test_repeated_boundary_pruning_is_rejected(second_idxs):
     groups = [group_for(model, (module, tp.prune_linear_out_channels, idxs)) for idxs in ([1], second_idxs)]
     cache = cache_for(**{"first.hook_out": torch.randn(1, 2, 6)})
     with pytest.raises(ValueError, match="Repeated channel pruning"):
-        TorchPruningTracer._append_defects(cache, model, groups)
+        append_group_defects(cache, model, groups)
 
 
 @pytest.mark.parametrize("idxs", [[-1], [99]])
@@ -363,7 +372,7 @@ def test_invalid_indices_are_rejected_when_restoring(idxs):
     model = LinearModel()
     group = group_for(model, (model.first.original_component, tp.prune_linear_out_channels, idxs))
     cache = cache_for(**{"first.hook_out": torch.randn(1, 2, 6)})
-    trace = TorchPruningTracer._append_defects(cache, model, [group])
+    trace = append_group_defects(cache, model, [group])
     with pytest.raises(ValueError, match="outside"):
         trace.corruptions["first.hook_out"].restore_activation(cache.activations["first.hook_out"])
 
@@ -372,13 +381,27 @@ def test_indices_for_another_module_are_not_assigned_to_the_hook():
     model = LinearModel()
     group = group_for(model, (nn.Linear(6, 6), tp.prune_linear_out_channels, [1]))
     cache = cache_for(**{"first.hook_out": torch.randn(1, 2, 6)})
-    trace = TorchPruningTracer._append_defects(cache, model, [group])
+    trace = append_group_defects(cache, model, [group])
     assert trace.corruptions["first.hook_out"].defects == []
+    assert trace.unresolved_pruning_hooks == set()
 
 
 def test_capture_shape_is_not_revalidated_against_model_weights():
     model = LinearModel()
     cache = cache_for(**{"first.hook_out": torch.randn(1, 2, 5)})
-    trace = TorchPruningTracer._append_defects(cache, model, [])
+    trace = append_group_defects(cache, model, [])
     assert trace.activations is cache.activations
     assert trace.corruptions["first.hook_out"].defects == []
+
+
+@pytest.mark.parametrize("groups", [None, []])
+def test_public_capture_without_tp_or_with_empty_tp_groups(groups):
+    model = LinearModel()
+    with warnings.catch_warnings(record=True) as caught:
+        trace = TorchPruningTracer.capture_hookpoints_activations_with_defects(
+            model, torch.randn(1, 2, 6), names_filter=["hook_intermediate"],
+            compute_gradient=False, groups=groups,
+        )
+    assert not caught
+    assert trace.unresolved_pruning_hooks == set()
+    assert trace.corruptions["hook_intermediate"].defects == []

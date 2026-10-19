@@ -106,7 +106,7 @@ class BaseTracer(ABC):
         gradient_cache: GradientCache,
         model: TransformerBridge,
     ) -> dict[str, ActivationCorruption]:
-        '''Read TransformerLens layout defects for captured hooks (like shape changing in Attention Convert from [batch, seq, d_model] to [batch, seq, n_heads, d_head]) without changing cached tensors.
+        '''Read TransformerLens layout defects for captured hooks (like shape changing in class `Attention` convert from [batch, seq, d_model] to [batch, seq, n_heads, d_head]) without changing cached tensors.
         
         Returns corruptions for all hookpoints. If no corruption is present, the defects list is empty inside ActivationCorruption.
         '''

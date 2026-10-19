@@ -32,11 +32,14 @@ def test_one_plan_sp_tp_roundtrip_and_hook_cleanup(tiny_pruning_model, monkeypat
         return plan
 
     monkeypatch.setattr(LocalPruning, "get_torch_pruning_groups_and_structural_setups", record_plan)
-    result = ComparePrunedModelsUsecase.compare_transfer_and_torch_prunings(
-        model, tokens, task, print_summary=False,
+    result, transfer_trace, torch_trace = ComparePrunedModelsUsecase.compare_transfer_and_torch_prunings(
+        model, tokens, task, compute_gradient=True, print_summary=False,
     )
     assert len(built_plans) == 1
     assert all(row.status == "OK" for row in result.activations.values())
+    assert result.gradients
+    assert any(grad is not None for grad in transfer_trace.gradients.values())
+    assert any(grad is not None for grad in torch_trace.gradients.values())
     assert all(row.status == "OK" for row in result.gradients.values())
     assert result.metric.status == "OK"
     assert [module.training for module in model.modules()] == original_modes
@@ -55,22 +58,29 @@ def test_capture_with_conversion_and_explicit_upstream(tiny_pruning_model):
     # Use the instrumentor's Q-projection wrapper for flattened head masks.
     model.first.name = "q_proj"
     model.first.hook_out.hook_conversion = RearrangeTensorConversion("b s (h d) -> b s h d", h=2)
-    result = ComparePrunedModelsUsecase.compare_transfer_and_torch_prunings(
+    result, transfer_trace, torch_trace = ComparePrunedModelsUsecase.compare_transfer_and_torch_prunings(
         model, torch.randn(2, 3, 6),
         ModelPruneTask({"first": GroupPruneTask(cols=None, rows=[1, 4])}),
-        name_filter=["stem.hook_out", "first.hook_out", "last.hook_in"],
-        print_summary=False,
+        names_filter=["stem.hook_out", "first.hook_out", "last.hook_in"],
+        compute_gradient=True, print_summary=False,
     )
     row = result.activations["first.hook_out"]
     assert row.reference_shape == (2, 3, 2, 2)
     assert row.candidate_shape == (2, 3, 2, 3)
     assert row.reference_restored_shape == row.candidate_restored_shape == (2, 3, 6)
-    assert all(row.status == "OK" for row in result.activations.values())
-    assert all(row.status == "OK" for row in result.gradients.values())
+    mapped = {"first.hook_out", "last.hook_in"}
+    assert torch_trace.unresolved_pruning_hooks == set()
+    assert set(result.activations) == set(result.gradients) == mapped | {"stem.hook_out"}
+    for rows in (result.activations, result.gradients):
+        assert all(row.status == "OK" for row in rows.values())
+    # An upstream hook outside the pruning groups still drives backward.
+    assert transfer_trace.gradients["stem.hook_out"] is not None
+    assert torch_trace.gradients["stem.hook_out"] is not None
+    assert all(torch_trace.gradients[name] is not None for name in mapped)
 
 
 def test_activation_only_summary_and_no_difference_storage(tiny_pruning_model, capsys):
-    result = ComparePrunedModelsUsecase.compare_transfer_and_torch_prunings(
+    result, transfer_trace, torch_trace = ComparePrunedModelsUsecase.compare_transfer_and_torch_prunings(
         tiny_pruning_model(), torch.randn(2, 3, 6),
         ModelPruneTask({"first": GroupPruneTask(cols=None, rows=[1, 4])}),
         compute_gradient=False, store_difference=False,
@@ -117,7 +127,7 @@ def test_overlapping_groups_rejected_before_pruning(tiny_pruning_model):
         "first": GroupPruneTask(cols=None, rows=[1, 4]),
         "last": GroupPruneTask(cols=[1, 4], rows=None),
     })
-    with pytest.raises(ValueError, match="Repeated boundary"):
+    with pytest.raises(ValueError, match="Repeated channel pruning"):
         ComparePrunedModelsUsecase.compare_transfer_and_torch_prunings(model, torch.randn(2, 3, 6), task)
     assert model.first.original_component.weight.shape == (6, 6)
     assert not model.first.hook_out.fwd_hooks
@@ -136,7 +146,7 @@ def test_layer_filter_respects_layer_boundaries(monkeypatch):
         None, torch.ones(1), ModelPruneTask({}), [1, 3], compute_gradient=False,
     )
     assert result is sentinel
-    predicate = captured["name_filter"]
+    predicate = captured["names_filter"]
     assert predicate("blocks.1.attn.hook_in")
     assert predicate("blocks.3.mlp.hook_out")
     assert not predicate("blocks.10.attn.hook_in")

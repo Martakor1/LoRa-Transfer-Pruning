@@ -28,6 +28,7 @@ class TorchPruningTracer(BaseTracer):
         '''Combine direct linear pruning defects with TL conversion defects.
         '''
 
+        # visited_hooks = set() - cant handle, is hook not in group because it don't captured by TP or it's not in group, but in gradient_cache because it is in name_filter
         if groups is not None:
             for hook, idxs in iter_pruned_linear_hooks(model, groups):
                 if hook.name not in corruptions_upon_gradient_cache:
@@ -38,10 +39,12 @@ class TorchPruningTracer(BaseTracer):
                 )
                 # First undo TL conversions, then restore removed channels.
                 corruptions_upon_gradient_cache[hook.name].defects.insert(0, RemovedChannelsDefect(removed_indices))
-
+                # visited_hooks.add(hook.name)
+                
         return PruningTrace(
             activations=gradient_cache.activations,
             gradients=gradient_cache.gradients,
             metric=gradient_cache.metric,
             corruptions=corruptions_upon_gradient_cache
+            #unresolved_hooks=set(corruptions_upon_gradient_cache.keys()) - visited_hooks 
         )

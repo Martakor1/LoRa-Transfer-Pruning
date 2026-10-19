@@ -129,7 +129,7 @@ def test_structural_setup_runs_before_pruning_and_capture(monkeypatch, tiny_prun
         events.append("capture")
         assert actual_model is model
         assert actual_tokens is tokens
-        assert kwargs == dict(names_filter=["last.hook_out"], compute_gradient=False, groups=[group])
+        assert kwargs == dict(names_filter=["last.hook_out"], compute_gradient=False, groups=[group], local_gradients=False)
         return sentinel
 
     monkeypatch.setattr(prune_and_capture_usecase, "LocalPruning", LocalPruning)

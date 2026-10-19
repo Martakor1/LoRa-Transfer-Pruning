@@ -145,5 +145,5 @@ def test_print_summary_reports_diff_and_uncompared_separately(capsys):
 
 @pytest.mark.parametrize("kwargs", [{"atol": -1}, {"rtol": float("nan")}])
 def test_invalid_options(kwargs):
-    with pytest.raises(ValueError):
+    with pytest.raises(RuntimeError, match="must be greater than or equal to zero"):
         GreatComparator.compare_traces(make_trace(torch.ones(2)), make_trace(torch.ones(2)), **kwargs)

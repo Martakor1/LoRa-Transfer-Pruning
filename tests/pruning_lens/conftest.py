@@ -59,6 +59,10 @@ class _TinyPruningModel(HookedRootModule):
     def device(self):
         return next(self.parameters()).device
 
+    def _gated_hook_reason(self, name):
+        # All hooks in this tiny model are unconditional.
+        return None
+
     def forward(self, input, **kwargs):
         return self.last(self.first(self.stem(input)))
 

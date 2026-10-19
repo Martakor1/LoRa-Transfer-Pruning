@@ -18,13 +18,13 @@ class TransferPruningTracer(BaseTracer):
     def _append_defects(
         gradient_cache: GradientCache, 
         model: TransformerBridge,
-        groups: list[tp.Group],
+        groups: list[tp.Group] | None,
         corruptions_upon_gradient_cache: dict[str, ActivationCorruption],
         compute_gradient: bool
     ) -> PruningTrace:
         """Attach layout metadata and mask gradients in native channel coordinates."""
 
-        if (compute_gradient):
+        if compute_gradient and groups is not None:
             #correct gradients from grad incoming in (x * mask) to grad incoming in x (grad = grad * mask)
             for hook, idxs in iter_pruned_linear_hooks(model, groups):
                 if (hook.name is None or hook.name not in corruptions_upon_gradient_cache):

@@ -22,7 +22,11 @@ def test_append_defects_preserves_cache_and_only_visits_captured_hooks(attention
         gradients={"q": head.hook_conversion.convert(source), "identity": None},
         metric=torch.tensor(1.0),
     )
-    trace = TransferPruningTracer._append_defects(cache, model)
+    corruptions = TransferPruningTracer._get_conversion_corruptions(cache, model)
+    trace = TransferPruningTracer._append_defects(
+        cache, model, groups=[], corruptions_upon_gradient_cache=corruptions,
+        compute_gradient=False,
+    )
     assert trace.activations is cache.activations
     assert trace.gradients is cache.gradients
     assert trace.metric is cache.metric
@@ -39,13 +43,13 @@ def test_error_includes_hook_name():
     hook.hook_conversion = BaseTensorConversion()
     cache = GradientCache({"bad_hook": torch.ones(2, 3)}, {}, torch.tensor(0.0))
     with pytest.raises(UnsupportedHookConversionError, match="bad_hook"):
-        TransferPruningTracer._append_defects(cache, SimpleNamespace(hook_dict={"bad_hook": hook}))
+        TransferPruningTracer._get_conversion_corruptions(cache, SimpleNamespace(hook_dict={"bad_hook": hook}))
 
 
 def test_missing_hook_raises():
     cache = GradientCache({"missing_hook": torch.ones(2, 3)}, {}, torch.tensor(0.0))
     with pytest.raises(KeyError, match="missing_hook"):
-        TransferPruningTracer._append_defects(cache, SimpleNamespace(hook_dict={}))
+        TransferPruningTracer._get_conversion_corruptions(cache, SimpleNamespace(hook_dict={}))
 
 
 class TinyModel(HookedRootModule):

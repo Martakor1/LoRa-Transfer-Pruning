@@ -54,8 +54,10 @@ class CompairingTrace:
     def print_summary(self, hide_unresolved_hooks: bool = True) -> None:
         '''Print activation hooks in order, with gradients when present.
 
-        Hidden hooks have an unresolved activation or gradient comparison and
-        are excluded from both numbering and summary statistics.
+        Hook names and their order come from activations only.
+        When hide_unresolved_hooks is True, hooks with an UNRESOLVED activation
+        comparison are excluded from the output, numbering, and summary statistics.
+        Gradient comparison status does not affect hook visibility.
         '''
         names = [
             name for name, activation in self.activations.items()
