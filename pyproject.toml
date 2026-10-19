@@ -40,7 +40,7 @@ transformer_lens = [
     "mlflow>=3.17.0",
     "boto3>=1.43.109",
     "optimum>=2.2.0",
-    "torch-pruning==1.6.1+glazkov.1",
+    "torch-pruning==1.6.1",
     "torchinfo>=1.8.0",
     "transformer-lens",
     "transformers==5.9.0", #для дипсика нужна, но для qwen загрузки нужна 4.51 так как сохранены веса в этой версии и загружаются с перевыделением памяти.
@@ -51,7 +51,7 @@ transformer_lens = [
 
 [tool.uv.sources]
 # Concat dimension fix; keep the revision aligned with .github/requirements-cpu.txt.
-torch-pruning = { git = "https://github.com/Martakor1/Torch-Pruning.git", rev = "8285eb8d0b1d313eac5af93f5f7d0c24e278b0d8" }
+torch-pruning = { git = "https://github.com/Martakor1/Torch-Pruning.git", rev = "f8a01023ede7228599e15faa08d19bd9324e4065" }
 transformer-lens = {
     path = "../TransformerLens", 
     editable = true,
