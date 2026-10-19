@@ -2610,7 +2610,7 @@ wheels = [
 [[package]]
 name = "torch-pruning"
 version = "1.6.1"
-source = { git = "https://github.com/Martakor1/Torch-Pruning.git?rev=f8a01023ede7228599e15faa08d19bd9324e4065#f8a01023ede7228599e15faa08d19bd9324e4065" }
+source = { git = "https://github.com/Martakor1/Torch-Pruning.git?rev=d451c2f2d94f09d4281be48a1e9040ebf01906cb#d451c2f2d94f09d4281be48a1e9040ebf01906cb" }
 dependencies = [
     { name = "numpy" },
     { name = "torch", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
@@ -2771,7 +2771,7 @@ transformer-lens = [
     { name = "kernels", specifier = ">=0.12,<0.13" },
     { name = "mlflow", specifier = ">=3.17.0" },
     { name = "optimum", specifier = ">=2.2.0" },
-    { name = "torch-pruning", git = "https://github.com/Martakor1/Torch-Pruning.git?rev=f8a01023ede7228599e15faa08d19bd9324e4065" },
+    { name = "torch-pruning", git = "https://github.com/Martakor1/Torch-Pruning.git?rev=d451c2f2d94f09d4281be48a1e9040ebf01906cb" },
     { name = "torchinfo", specifier = ">=1.8.0" },
     { name = "transformer-lens", editable = "../TransformerLens" },
     { name = "transformers", specifier = "==5.9.0" },

@@ -5,7 +5,7 @@ torchvision==0.25.0+cpu
 transformers==5.9.0
 peft==0.20.0
 # Fork fixes unsigned concat dimensions (upstream #532).
-torch-pruning @ git+https://github.com/Martakor1/Torch-Pruning.git@f8a01023ede7228599e15faa08d19bd9324e4065
+torch-pruning @ git+https://github.com/Martakor1/Torch-Pruning.git@d451c2f2d94f09d4281be48a1e9040ebf01906cb
 pytest==9.1.1
 matplotlib>=3.7.5
 # Patched bridge/capture API, pinned to the revision used by this project.

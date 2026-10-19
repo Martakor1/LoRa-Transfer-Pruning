@@ -11,7 +11,7 @@ def pytest_addoption(parser):
                     help="Single CUDA device for the checkpoint and captures.")
     group.addoption("--pruning-allow-download", action="store_true",
                     help="Allow missing Hugging Face files to be downloaded.")
-    group.addoption("--pruning-dtype", choices=("float16", "bfloat16"), default=None,
+    group.addoption("--pruning-dtype", choices=("float16", "bfloat16", "float32"), default=None,
                     help="Override the FP16 test dtype for numerical diagnostics.")
 
 
