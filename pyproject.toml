@@ -51,7 +51,7 @@ transformer_lens = [
 
 [tool.uv.sources]
 # Concat dimension fix; keep the revision aligned with .github/requirements-cpu.txt.
-torch-pruning = { git = "https://github.com/Martakor1/Torch-Pruning.git", rev = "f8a01023ede7228599e15faa08d19bd9324e4065" }
+torch-pruning = { git = "https://github.com/Martakor1/Torch-Pruning.git", rev = "d451c2f2d94f09d4281be48a1e9040ebf01906cb" }
 transformer-lens = {
     path = "../TransformerLens", 
     editable = true,
