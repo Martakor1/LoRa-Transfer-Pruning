@@ -1,0 +1,12 @@
+# CPU test environment; keep versions aligned with pyproject.toml.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.10.0+cpu
+torchvision==0.25.0+cpu
+transformers==5.9.0
+peft==0.20.0
+# Fork fixes unsigned concat dimensions (upstream #532).
+torch-pruning @ git+https://github.com/Martakor1/Torch-Pruning.git@f8a01023ede7228599e15faa08d19bd9324e4065
+pytest==9.1.1
+matplotlib>=3.7.5
+# Patched bridge/capture API, pinned to the revision used by this project.
+transformer-lens @ git+https://github.com/martakor1/TransformerLens.git@99a53a345859f447498889370a32f0701a603673

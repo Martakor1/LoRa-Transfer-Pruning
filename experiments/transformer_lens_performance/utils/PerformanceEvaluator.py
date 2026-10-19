@@ -52,6 +52,11 @@ class PerformanceEvaluator:
             n_batches=8,
             collate_fn=None,
     ):
+        if isinstance(data, str):
+            raise TypeError(
+                "String dataset identifiers are not supported; pass a loaded dataset or DataLoader."
+            )
+
         self.model_regime = model_regime
         self.n_batches = n_batches
         self.batch_size = batch_size  # or self.data_loader.batch_size
@@ -62,12 +67,9 @@ class PerformanceEvaluator:
         self.transfer_to_device_fn = torch.Tensor.to
         self._init_model(model)
 
-        dataset_from_directory = isinstance(data, str)  ### where's func for string dataset loading
         if isinstance(data, DataLoader):
             collate_fn = data.collate_fn
             dataset = data.dataset
-        elif dataset_from_directory:
-            pass  # TODO some logic for string dataset downloading
         else:
             dataset = data
         self.data_loader = DataLoader(
