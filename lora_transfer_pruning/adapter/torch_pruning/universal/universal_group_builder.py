@@ -80,9 +80,11 @@ class UniversalGroupBuilder:
         potential_deps = set([module]) #if nn.Parameter
         if (isinstance(module, LinearBridge)):
             potential_deps = set([module._original_component]) # suppose ordinary nn.Linear
-            if (isinstance(module._original_component, peft.tuners.lora.Linear)):
+            if (isinstance(module._original_component, peft.tuners.lora.LoraLayer)):
                 active_adapters = module._original_component.active_adapters
-                potential_deps = set([module._original_component.base_layer])
+                potential_deps = set()
+                if isinstance(module._original_component.base_layer, nn.Linear):
+                    potential_deps = set([module._original_component.base_layer])
                 if (prune_out):
                     for adapter_name in active_adapters:
                         potential_deps.add(module._original_component.lora_B[adapter_name])

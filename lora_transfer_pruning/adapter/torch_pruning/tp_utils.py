@@ -16,7 +16,7 @@ def get_active_module_in_dep_graph_from_linear_bridge(module: LinearBridge, tp_p
     '''Get original component or LoRA A/B module for LinearBridge that is in torch_pruning dependency graph.'''
     if (isinstance(module._original_component, nn.Linear)):
         active_module = module._original_component
-    elif (isinstance(module._original_component, peft.tuners.lora.layer.Linear)):
+    elif (isinstance(module._original_component, peft.tuners.lora.LoraLayer)): #peft.tuners.lora.layer.Linear or peft.tuners.lora.gptq.GPTQLoraLinear
         adapter_name = module._original_component.active_adapters[0] #we enough with any of active adapters, all of them part of one root LinearBridge
         if (tp_pruning_function == tp.prune_linear_in_channels):
             active_module = module._original_component.lora_A[adapter_name]
@@ -85,7 +85,7 @@ def get_device(module: LinearBridge) -> torch.device:
     '''Get device of the module's original component.'''
     if isinstance(module._original_component, nn.Linear):
         return module._original_component.weight.device
-    elif isinstance(module._original_component, peft.tuners.lora.layer.Linear):
+    elif isinstance(module._original_component, peft.tuners.lora.LoraLayer):
         return cast(torch.device, module._original_component.base_layer.weight.device)
     else:
         raise TypeError(

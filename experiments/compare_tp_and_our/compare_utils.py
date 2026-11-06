@@ -206,7 +206,7 @@ def _get_group_indices_by_attention_stage(attn, groups) -> dict[str, torch.Tenso
 
         component = attn.get_submodule(component_name)
         original = getattr(component, "_original_component", component)
-        if isinstance(original, peft.tuners.lora.layer.Linear):
+        if isinstance(original, peft.tuners.lora.LoraLayer):
             for adapter_name in original.active_adapters:
                 targets[(id(original.lora_A[adapter_name]), "in")] = relative_stage_name
                 targets[(id(original.lora_B[adapter_name]), "out")] = relative_stage_name
@@ -395,7 +395,7 @@ def _find_pruned_indices_for_module(groups, module, prune_out=True): #TODO depre
         DG = group._DG
         for dep, idxs in group: # type: ignore
             real_module = dep.target.module
-            if (not isinstance(module, peft.tuners.lora.layer.Linear)):
+            if (not isinstance(module, peft.tuners.lora.LoraLayer)):
                 if dep.target.module is not module: 
                     continue
             else:

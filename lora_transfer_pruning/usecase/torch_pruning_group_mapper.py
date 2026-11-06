@@ -48,14 +48,14 @@ class TorchPruningGroupMapper:
                             rows = None
                         
                         original_component = original_bridge._original_component
-                        if (isinstance(original_component, torch.nn.Linear)):
+                        if (isinstance(original_component, torch.nn.Linear)): #for activate only task indices for provided prune_task_name even for torch.Linear
                             PruningInstrumentor.prepare_linear_for_pruning(original_bridge,
                                                                            cols,
                                                                            rows, 
                                                                            rescale=rescale,
                                                                            active_adapters_source=active_adapters_source,
                                                                            adapter_name=prune_task_name)
-                        elif (isinstance(original_component, peft.tuners.lora.layer.Linear)):
+                        elif (isinstance(original_component, peft.tuners.lora.LoraLayer)):
                             if (dep.layer is original_component.base_layer): #we only need to add hooks for base layer, to avoid double hooks later for lora_A or lora_B
                                 PruningInstrumentor.prepare_linear_for_pruning(original_bridge,
                                                                                cols,
