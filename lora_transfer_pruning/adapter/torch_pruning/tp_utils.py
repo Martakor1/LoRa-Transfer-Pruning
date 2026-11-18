@@ -86,7 +86,9 @@ def get_device(module: LinearBridge) -> torch.device:
     if isinstance(module._original_component, nn.Linear):
         return module._original_component.weight.device
     elif isinstance(module._original_component, peft.tuners.lora.LoraLayer):
-        return cast(torch.device, module._original_component.base_layer.weight.device)
+        # Packed quantized bases may expose only buffers, not a .weight tensor.
+        adapter = module._original_component.active_adapters[0]
+        return module._original_component.lora_A[adapter].weight.device
     else:
         raise TypeError(
             f"Unsupported module type {type(module._original_component)} for getting device.")

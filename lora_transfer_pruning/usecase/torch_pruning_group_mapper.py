@@ -5,7 +5,8 @@ from transformers import DeepseekV2Model
 from lora_transfer_pruning.core.pruning_instrumentor import PruningInstrumentor
 from transformer_lens.model_bridge.bridge import TransformerBridge
 from typing import Callable, cast
-from lora_transfer_pruning.core.constants import HOOK_IN_NAME_LEN, TRANSFORMER_LENS_ORIGINAL_COMPONENT_SUFFIX_LEN
+from lora_transfer_pruning.core import tl_utils
+from lora_transfer_pruning.adapter.torch_pruning.tp_utils import get_active_module_in_dep_graph_from_linear_bridge
 
 from transformer_lens.model_bridge.generalized_components.base import GeneralizedComponent
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
@@ -56,12 +57,19 @@ class TorchPruningGroupMapper:
                                                                            active_adapters_source=active_adapters_source,
                                                                            adapter_name=prune_task_name)
                         elif (isinstance(original_component, peft.tuners.lora.LoraLayer)):
-                            if (dep.layer is original_component.base_layer): #we only need to add hooks for base layer, to avoid double hooks later for lora_A or lora_B
+                            # Use exactly one representative of the full projection.
+                            # A quantized base is not nn.Linear: use active A/B's
+                            # external boundary but mask the OUTER bridge (W + BA).
+                            target = original_component.base_layer
+                            if not isinstance(target, torch.nn.Linear):
+                                pruning_fn = tp.prune_linear_out_channels if out_channels_need_to_be_pruned else tp.prune_linear_in_channels
+                                target = get_active_module_in_dep_graph_from_linear_bridge(original_bridge, pruning_fn)
+                            if (dep.layer is target):
                                 PruningInstrumentor.prepare_linear_for_pruning(original_bridge,
                                                                                cols,
                                                                                rows, 
                                                                                rescale=rescale,
-                                                                               active_adapters_source=lambda: original_bridge.active_adapters,
+                                                                               active_adapters_source=lambda bridge=original_bridge: bridge.active_adapters,
                                                                                adapter_name=prune_task_name)
                         else:
                             raise NotImplementedError(f"Pruning for {original_component.__class__.__name__} is not implemented yet, but it is in dependency group")
@@ -71,8 +79,7 @@ class TorchPruningGroupMapper:
                 if (isinstance(dep.layer, torch.nn.Linear)):
                     #if we compress q_proj in deepseek we should change scaling = self._qk_head_dim ** (-0.5)
                     original_bridge = cast(LinearBridge, model_bridge.get_submodule(dep.target.name.rpartition("._original_component")[0]))
-                    assert original_bridge.hook_in.name is not None
-                    bridge_name = original_bridge.hook_in.name[:-HOOK_IN_NAME_LEN]
+                    bridge_name = tl_utils.get_absolute_tl_name(original_bridge)
                     if (bridge_name.endswith(".q_proj")
                             and len(idxs) > 0 
                             and dep.pruning_fn.__name__.endswith("out_channels")
@@ -97,7 +104,7 @@ class TorchPruningGroupMapper:
             
             class_name = module.__class__.__name__.lower()
             if ("rms" in class_name):
-                original_rms_bridge = cast(GeneralizedComponent, model_bridge.get_submodule(name[:-TRANSFORMER_LENS_ORIGINAL_COMPONENT_SUFFIX_LEN]))
+                original_rms_bridge = cast(GeneralizedComponent, model_bridge.get_submodule(name[:-tl_utils.TRANSFORMER_LENS_ORIGINAL_COMPONENT_SUFFIX_LEN]))
                 PruningInstrumentor.prepare_rms_norm_for_pruning_dynamically(original_rms_bridge)
             else:
                 if ("norm" in name or "norm" in class_name):

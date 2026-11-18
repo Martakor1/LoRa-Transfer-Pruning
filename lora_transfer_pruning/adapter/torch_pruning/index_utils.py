@@ -5,6 +5,7 @@ from torch import nn
 import torch_pruning as tp
 
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
+from .tp_utils import get_device
 
 
 class IndexUtils:
@@ -36,7 +37,7 @@ class IndexUtils:
             num_of_channels = original_component.in_features
 
         num_channels_to_prune = int(num_of_channels * idxs)
-        return torch.randperm(num_of_channels, device=original_component.weight.device)[:num_channels_to_prune]
+        return torch.randperm(num_of_channels, device=get_device(module))[:num_channels_to_prune]
     
     @staticmethod
     def close_rope_pairs(local_idxs: torch.Tensor, head_dim: int) -> torch.Tensor:

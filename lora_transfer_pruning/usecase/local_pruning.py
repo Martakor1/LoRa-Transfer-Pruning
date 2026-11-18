@@ -10,12 +10,12 @@ from lora_transfer_pruning.usecase.torch_pruning_group_mapper import TorchPrunin
 from lora_transfer_pruning.core.prune_task_type import ModelPruneTask
 from .prune_task_plan import PruneTaskPlan
 
-
 class LocalPruning:
     def __init__(self,
                  model_bridge: TransformerBridge,
                  example_input_ids: torch.Tensor,
                  peft_model: PeftModel | None = None,
+                 customized_pruners: dict | None = None,
                  ):
         '''Initialize LocalPruning with a model bridge, example input IDs (to build dependency graph), and an optional peft_model,
         if you plan to use many prune tasks and lora adapters for full transfer pruning.'''
@@ -24,7 +24,8 @@ class LocalPruning:
         self.torch_pruning_group_builder = TorchPruningGroupBuilder(
             model_bridge,
             example_input_ids,
-            unwrapped_params
+            unwrapped_params,
+            customized_pruners=customized_pruners,
         )
         self.peft_model = peft_model
         self.active_adapters_source = None
@@ -37,7 +38,7 @@ class LocalPruning:
         pruning_groups = []
         for module_name, groupPruneTask in prune_task.data.items():
             module = self.model_bridge.get_submodule(module_name)
-            assert isinstance(module, LinearBridge), f"Module {module_name} is not a LinearBridge and cannot be pruned."
+            assert isinstance(module, LinearBridge), f"Module {module_name} is not a LinearBridge and cannot be used as root for pruning group (for many reasons it should be LinearBridge with hooks and etc...)."
             
             if (groupPruneTask.cols is not None):
                 pruning_groups.append(
