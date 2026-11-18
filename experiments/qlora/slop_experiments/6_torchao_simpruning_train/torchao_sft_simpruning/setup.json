@@ -1,0 +1,84 @@
+{
+  "config": {
+    "steps": 100,
+    "batch_size": 8,
+    "context_length": 512,
+    "train_blocks": 1024,
+    "eval_blocks": 32,
+    "eval_every": 20,
+    "learning_rate": 0.0002,
+    "warmup_steps": 5,
+    "seed": 42
+  },
+  "checkpoint": "Qwen/Qwen3-30B-A3B-GPTQ-Int4",
+  "revision": "9b534e4318b7ebc3c961a839f13eb18b1833f441",
+  "backend": "GPTQ INT4 repacked for TorchAO fused Triton forward + backward",
+  "compute_dtype": "torch.float16",
+  "lora_parameter_dtype": "torch.float32",
+  "physical_gpu": "2",
+  "gpu": "NVIDIA A100-PCIE-40GB",
+  "lora_layers": [
+    45,
+    46,
+    47
+  ],
+  "lora_rank": 16,
+  "lora_alpha": 32,
+  "optimizer": "AdamW, weight_decay=.01, cosine scheduler",
+  "pruning": {
+    "enabled": true,
+    "layers": [
+      45,
+      46,
+      47
+    ],
+    "attention_ratio_requested": 0.3,
+    "mlp_ratio_requested": 0.3,
+    "seed": 0,
+    "rescale": false,
+    "group_count": 387,
+    "linear_boundary_count": 1164,
+    "wrapped_unpruned_eval": {
+      "eval_loss": 2.6461071968078613,
+      "eval_model_preparation_time": 0.3723,
+      "eval_runtime": 24.7219,
+      "eval_samples_per_second": 1.294,
+      "eval_steps_per_second": 0.162,
+      "eval_entropy": 1.4247326850891113,
+      "eval_num_tokens": 0.0,
+      "eval_mean_token_accuracy": 0.5017734840512276,
+      "epoch": 0,
+      "step": 0,
+      "eval_perplexity": 14.099046864091347
+    },
+    "mask_audit": {
+      "checked_root_hooks": 387,
+      "max_removed_activation": 0.0,
+      "hf_peft_probe_loss": 3.9960732460021973
+    },
+    "frozen_additional_tl_parameters": [
+      "base_model.model.lm_head._original_component.bias"
+    ],
+    "attention_implementation": "eager",
+    "preparation_seconds": 289.26093578338623
+  },
+  "dataset": {
+    "train": {
+      "source": "/glazkov-dev/.cache/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/train-00000-of-00001.parquet",
+      "available_blocks": 4962,
+      "selected_blocks": 1024,
+      "input_tokens": 524288,
+      "loss_tokens": 523264,
+      "discarded_tail_tokens": 455
+    },
+    "validation": {
+      "source": "/glazkov-dev/.cache/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/validation-00000-of-00001.parquet",
+      "available_blocks": 516,
+      "selected_blocks": 32,
+      "input_tokens": 16384,
+      "loss_tokens": 16352,
+      "discarded_tail_tokens": 479
+    },
+    "packing": "EOS after each nonempty text record; concatenate within official split; no padding; retain EOS labels."
+  }
+}

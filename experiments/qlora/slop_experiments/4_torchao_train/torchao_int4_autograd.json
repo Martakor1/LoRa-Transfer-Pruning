@@ -1,0 +1,32 @@
+{
+  "saved_tensors": [
+    {
+      "shape": [
+        1024,
+        768
+      ],
+      "dtype": "torch.uint8",
+      "bytes": 786432
+    },
+    {
+      "shape": [
+        16,
+        768
+      ],
+      "dtype": "torch.float16",
+      "bytes": 24576
+    },
+    {
+      "shape": [
+        16,
+        768
+      ],
+      "dtype": "torch.float16",
+      "bytes": 24576
+    }
+  ],
+  "cuda_kernels": [
+    "_mixed_mm_kernel",
+    "_mixed_mm_kernel"
+  ]
+}

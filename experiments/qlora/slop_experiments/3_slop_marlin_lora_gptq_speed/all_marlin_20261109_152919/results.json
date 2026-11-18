@@ -1,0 +1,56 @@
+{
+  "versions": {
+    "torch": "2.10.0+cu128",
+    "gptqmodel": "7.0.0",
+    "peft": "0.20.0",
+    "transformers": "5.9.0",
+    "trl": "0.29.1"
+  },
+  "gpu": "NVIDIA A100-PCIE-40GB",
+  "physical_gpu": 2,
+  "timings": [
+    {
+      "batch_size": 1,
+      "seconds": 1.7780344498654206,
+      "samples_per_second": 0.562418799070901,
+      "peak_allocated_gib": 15.93675184249878,
+      "loss": 2.9439167976379395,
+      "repeats": [
+        1.8136141188442707,
+        1.7672568149864674,
+        1.753232415765524
+      ]
+    },
+    {
+      "batch_size": 8,
+      "seconds": 2.419074922800064,
+      "samples_per_second": 3.3070492875599116,
+      "peak_allocated_gib": 17.208128452301025,
+      "loss": 2.5596110820770264,
+      "repeats": [
+        2.4152750484645367,
+        2.4012242816388607,
+        2.440725438296795
+      ]
+    }
+  ],
+  "load_seconds": 208.55482257530093,
+  "quantized_module_types": {
+    "MarlinLinear": 18624
+  },
+  "input_gradient": {
+    "ok": false,
+    "is_none": true,
+    "max_abs": null,
+    "expected_directional": -90.77268981933594,
+    "measured_directional": null
+  },
+  "autograd_warnings": [
+    "gptqmodel_marlin_fp16::gptq_marlin_gemm_fp16: an autograd kernel was not registered to the Autograd key(s) but we are trying to backprop through it. This may lead to silently incorrect behavior. This behavior is deprecated and will be removed in a future version of PyTorch. If your operator is differentiable, please ensure you have registered an autograd kernel to the correct Autograd key (e.g. DispatchKey::Autograd, DispatchKey::CompositeImplicitAutograd). If your operator is not differentiable, or to squash this warning and use the previous behavior, please register torch::CppFunction::makeFallthrough() to DispatchKey::Autograd. (Triggered internally at /pytorch/torch/csrc/autograd/autograd_not_implemented_fallback.cpp:76.)"
+  ],
+  "train_mode": {
+    "ok": false,
+    "error": "MarlinLinear: `model.layers.0.self_attn.q_proj` switching to training mode."
+  },
+  "can_train": false
+}

@@ -1,0 +1,48 @@
+{
+  "config": {
+    "steps": 100,
+    "batch_size": 8,
+    "context_length": 512,
+    "train_blocks": 1024,
+    "eval_blocks": 32,
+    "eval_every": 20,
+    "learning_rate": 0.0002,
+    "warmup_steps": 5,
+    "seed": 42
+  },
+  "checkpoint": "Qwen/Qwen3-30B-A3B-GPTQ-Int4",
+  "revision": "9b534e4318b7ebc3c961a839f13eb18b1833f441",
+  "backend": "GPTQ INT4 repacked for TorchAO fused Triton forward + backward",
+  "compute_dtype": "torch.float16",
+  "lora_parameter_dtype": "torch.float32",
+  "physical_gpu": "2",
+  "gpu": "NVIDIA A100-PCIE-40GB",
+  "lora_layers": [
+    45,
+    46,
+    47
+  ],
+  "lora_rank": 16,
+  "lora_alpha": 32,
+  "optimizer": "AdamW, weight_decay=.01, cosine scheduler",
+  "pruning": false,
+  "dataset": {
+    "train": {
+      "source": "/glazkov-dev/.cache/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/train-00000-of-00001.parquet",
+      "available_blocks": 4962,
+      "selected_blocks": 1024,
+      "input_tokens": 524288,
+      "loss_tokens": 523264,
+      "discarded_tail_tokens": 455
+    },
+    "validation": {
+      "source": "/glazkov-dev/.cache/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/validation-00000-of-00001.parquet",
+      "available_blocks": 516,
+      "selected_blocks": 32,
+      "input_tokens": 16384,
+      "loss_tokens": 16352,
+      "discarded_tail_tokens": 479
+    },
+    "packing": "EOS after each nonempty text record; concatenate within official split; no padding; retain EOS labels."
+  }
+}
