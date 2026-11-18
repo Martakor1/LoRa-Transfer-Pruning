@@ -2,9 +2,9 @@ from typing import Any, Callable
 
 from lora_transfer_pruning.core.prune_task_type import ModelPruneTask
 import torch
-from experiments.compare_tp_and_our.compare_utils import prepare_model_for_tp_or_transfer_pruning
-from experiments.utils import train_model
-from experiments.compare_tp_and_our.compare_utils import create_prune_task
+from experiments.utils.compare_utils import prepare_model_for_tp_or_transfer_pruning
+from experiments.utils.compare_utils import train_model
+from experiments.utils.compare_utils import create_prune_task
 from transformer_lens.model_bridge.bridge import TransformerBridge
 from lora_transfer_pruning.usecase.prune_task_plan import PruneTaskPlan
 
@@ -63,7 +63,7 @@ def get_learn_stat_for_some_pruning(
     
     froze_n_layers(model_bridge, n_layers_froze, froze_embed=froze_embed, froze_unembed=froze_unembed)
 
-    if (trainer_factory is not None):
+    if (trainer_factory is not None): #if custom TRAINER
         trainer = trainer_factory(model_bridge.original_model, (None, None))
         initial_metrics = trainer.evaluate()
         print("Before pruning:", initial_metrics)
@@ -89,7 +89,7 @@ def get_learn_stat_for_some_pruning(
     if (trainer_factory is not None):
         print("After pruning:", trainer.evaluate()) 
     
-    
+    # return trainer
     if (trainer_factory is not None):
         trainer.train()
         # learning_history_init.extend(learning_history)
