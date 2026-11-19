@@ -1,0 +1,9 @@
+candidate,adapter,phase,exact,max_abs,rel_l2,top1_disagreement
+joint,prune20,before,True,0.0,0.0,0.0
+joint,prune20,after,True,0.0,0.0,0.0
+joint,prune80,before,True,0.0,0.0,0.0
+joint,prune80,after,True,0.0,0.0,0.0
+joint_prefix,prune20,before,True,0.0,0.0,0.0
+joint_prefix,prune20,after,True,0.0,0.0,0.0
+joint_prefix,prune80,before,True,0.0,0.0,0.0
+joint_prefix,prune80,after,True,0.0,0.0,0.0

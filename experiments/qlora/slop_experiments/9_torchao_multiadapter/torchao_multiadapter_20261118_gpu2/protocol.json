@@ -1,0 +1,53 @@
+{
+  "gpu_index": 2,
+  "gpu_uuid": "GPU-788e3832-072e-5370-111a-63745bfb5435",
+  "gpu_name": "NVIDIA A100-PCIE-40GB",
+  "driver": "550.163.01",
+  "order_seed": 20261118,
+  "worker_orders": [
+    [
+      "joint_prefix",
+      "prune20",
+      "prune80",
+      "joint"
+    ],
+    [
+      "joint",
+      "joint_prefix",
+      "prune80",
+      "prune20"
+    ],
+    [
+      "prune20",
+      "prune80",
+      "joint",
+      "joint_prefix"
+    ],
+    [
+      "joint",
+      "prune80",
+      "prune20",
+      "joint_prefix"
+    ],
+    [
+      "prune20",
+      "prune80",
+      "joint_prefix",
+      "joint"
+    ]
+  ],
+  "prepared_dir": "../torchao_multiadapter_20261112",
+  "config": {
+    "steps": 40,
+    "batch_size": 8,
+    "context_length": 512,
+    "train_blocks": 512,
+    "eval_blocks": 32,
+    "eval_every": 10,
+    "learning_rate": 0.0002,
+    "warmup_steps": 5,
+    "seed": 42
+  },
+  "revision": "9b534e4318b7ebc3c961a839f13eb18b1833f441",
+  "data_sha256": "b2a691d054c44c06275e459f3b2979a6ee7e37f24ae7e4a70e7f0c95a03e6877"
+}

@@ -1,0 +1,43 @@
+{
+  "checks": [
+    {
+      "candidate": "joint",
+      "adapter": "prune20",
+      "losses_exact": true,
+      "loss_max_abs": 0.0,
+      "grad_norms_exact": true,
+      "update_counts_exact": true
+    },
+    {
+      "candidate": "joint",
+      "adapter": "prune80",
+      "losses_exact": true,
+      "loss_max_abs": 0.0,
+      "grad_norms_exact": true,
+      "update_counts_exact": true
+    },
+    {
+      "candidate": "joint_prefix",
+      "adapter": "prune20",
+      "losses_exact": true,
+      "loss_max_abs": 0.0,
+      "grad_norms_exact": true,
+      "update_counts_exact": true
+    },
+    {
+      "candidate": "joint_prefix",
+      "adapter": "prune80",
+      "losses_exact": true,
+      "loss_max_abs": 0.0,
+      "grad_norms_exact": true,
+      "update_counts_exact": true
+    }
+  ],
+  "all_adapter_tensors_exact": true,
+  "worst_weight_max_abs": 0.0,
+  "trace_status_counts": {
+    "OK": 11244
+  },
+  "all_logits_exact": true,
+  "negative_control_passed": true
+}

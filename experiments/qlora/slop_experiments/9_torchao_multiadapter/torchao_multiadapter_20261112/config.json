@@ -1,0 +1,11 @@
+{
+  "steps": 40,
+  "batch_size": 8,
+  "context_length": 512,
+  "train_blocks": 512,
+  "eval_blocks": 32,
+  "eval_every": 10,
+  "learning_rate": 0.0002,
+  "warmup_steps": 5,
+  "seed": 42
+}

@@ -1,0 +1,5 @@
+candidate,adapter,losses_exact,loss_max_abs,grad_norms_exact,update_counts_exact
+joint,prune20,True,0.0,True,True
+joint,prune80,True,0.0,True,True
+joint_prefix,prune20,True,0.0,True,True
+joint_prefix,prune80,True,0.0,True,True
