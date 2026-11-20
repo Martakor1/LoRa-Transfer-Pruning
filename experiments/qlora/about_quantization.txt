@@ -1,0 +1,56 @@
+https://apxml.com/courses/quantized-llm-deployment/chapter-1-advanced-llm-quantization-fundamentals/low-bit-quantization-techniques
+
+INT4 = symmetric: just clip(round(x/scale), -8, 7)
+    assymetric: clip(round(x/s) + z, 0, 15)
+
+FP4 = 1 bit sign, 2 bit exponent, 1 bit mantissa
+FP8 : E4M3 and E5M2 variants. Supported on:
+    Nvidia Hopper = H100, H200
+    Nvidia Ada Lovelace = 4090, 4080, 4070, 4060, RTX 6000, 5000, 4500, 4000
+NF4 = normal float 4 format (introduced in QLoRA) - used normal distribution in coding it (quantiles and so on...)
+
+Nvidia Blackwell = B200, B100, GB200, GB300, 5090, 5080, 5070, 6000
+
+https://docs.pytorch.org/ao/main/workflows/training.html#mxfp8
+MXFP4, MXFP8 from Open Compute Project (OCP) - https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf/
+Block formats, size=32. For every block scale is different.
+MX here = microscaling Floating Point 4-bit
+Supports in moe... https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training
+NVFP4 (implementation, E4M3) on Blackwell only! - torchao prototype. Also blocks, block size=16
+
+
+
+Ours A100: INT8 GEMM - ok, torchAO Int8WeightOnlyConfig, Int8DynamicActivationInt8WeightConfig
+            INT 4 - partially support (no hardware kernels, but can make ours?). torchAO Int4WeightOnlyConfig (group size 32)
+        FLOAT8 - no
+        MXFP4 - emulated
+        NVFP4 - emulated 
+
+FSDP - data parallelism
+
+AWQ - activation aware weight quantization. Compare it with GPTQ. More precise than GPTQ, because use activation statistics and importance of every neuron. GPTQ use one quantization for all weights of a layer.
+
+W4A16 = weight 4 bit, activation = 16 bit. (that's we want in Sim Pruning.) Works on A100!
+
+
+Triton - DSL language for cuda kernels. Write on Python, but kernels on GPU (cuda).
+Tiles, vectorizing, LLV<, compiler... @triton.jit
+
+BitBLAS - lib for mixed-precision computing. Kernels MX. DSL. Tiles. Sometimes better, than cuBLAS.
+archivec since 24 feb 2026...
+
+
+From  https://github.com/NVIDIA/Model-Optimizer/tree/main/examples/hf_ptq
+Technical Resources
+
+There are many quantization schemes supported in the example scripts:
+
+    The FP8 format is available on the Hopper and Ada GPUs with CUDA compute capability greater than or equal to 8.9.
+
+    The INT8 SmoothQuant, developed by MIT HAN Lab and NVIDIA, is designed to reduce both the GPU memory footprint and inference latency of LLM inference.
+
+    The INT4 AWQ is an INT4 weight only quantization and calibration method. INT4 AWQ is particularly effective for low batch inference where inference latency is dominated by weight loading time rather than the computation time itself. For low batch inference, INT4 AWQ could give lower latency than FP8/INT8 and lower accuracy degradation than INT8.
+
+    The W4A8 AWQ is an extension of the INT4 AWQ quantization that it also uses FP8 for activation for more speed up and acceleration.
+
+    The NVFP4 is one of the new FP4 formats supported by NVIDIA Blackwell GPU and demonstrates good accuracy compared with other 4-bit alternatives. NVFP4 can be applied to both model weights as well as activations, providing the potential for both a significant increase in math throughput and reductions in memory footprint and memory bandwidth usage compared to the FP8 data format on Blackwell. For higher accuracy with NVFP4 PTQ, we recommend nvfp4_mlp_only, nvfp4_experts_only, or nvfp4_omlp_only. nvfp4_mlp_only restricts NVFP4 quantization to MLP (and MoE) layers only, leaving attention layers in higher precision. nvfp4_experts_only quantizes only expert layers (*mlp.experts* and *block_sparse_moe*), ideal for MoE models. nvfp4_omlp_only extends MLP-only by also quantizing the o_proj layer, providing a middle ground between full NVFP4 and MLP-only quantization.
