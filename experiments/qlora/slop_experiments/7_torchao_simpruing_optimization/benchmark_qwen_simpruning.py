@@ -10,12 +10,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from train_qwen_torchao_sft import (
+sys.path.insert(0, str(next(p for p in Path(__file__).resolve().parents if (p / "lora_transfer_pruning").is_dir())))
+from experiments.qlora.torchao_exploration.train_qwen_torchao_sft import (
     ExperimentConfig, prepare_packed_datasets, create_trainer, set_seed,
 )
-from train_qwen_torchao import load_gptq_model, add_lora, HERE
-from train_qwen_torchao_simpruning import prepare_simpruning
-from optimize_qwen_simpruning import replace_rms_hooks, prepare_async_rmsnorm, use_native_sdpa
+from experiments.qlora.torchao_exploration.train_qwen_torchao import load_gptq_model, add_lora, HERE
+from experiments.qlora.torchao_exploration.train_qwen_torchao_simpruning import prepare_simpruning
+from experiments.qlora.torchao_exploration.optimize_qwen_simpruning import replace_rms_hooks, prepare_async_rmsnorm, use_native_sdpa
 from lora_transfer_pruning.core.pruning_instrumentor import PruningInstrumentor
 from benchmark_qwen_torchao import training_step
 import torch
@@ -110,7 +111,7 @@ def main(extra=False):
     (OUTPUT / 'preparation').mkdir(parents=True, exist_ok=True)
     with torch.random.fork_rng(devices=[0]):
         if extra:
-            from replay_qwen_sp_plan import prepare_saved_plan
+            from experiments.qlora.torchao_exploration.replay_qwen_sp_plan import prepare_saved_plan
             setup = prepare_saved_plan(model, tokenizer, train, trainer, OUTPUT / 'preparation')
         else:
             setup = prepare_simpruning(model, tokenizer, train, trainer, OUTPUT / 'preparation')
@@ -135,7 +136,7 @@ def main(extra=False):
         print('CHECK', checks[-1], flush=True)
 
     if extra:
-        from optimize_qwen_simpruning import skip_redundant_train
+        from experiments.qlora.torchao_exploration.optimize_qwen_simpruning import skip_redundant_train
         skip_redundant_train(model)
         compare('cached_train')
         run_case('cached_train')
@@ -148,7 +149,7 @@ def main(extra=False):
         run_case('cached_train_native_sdpa')
         ref_logits, ref_grad, ref_loss = check()
         reference_name = 'cached_train_native_sdpa'
-        from optimize_qwen_simpruning import bypass_inactive_bridges
+        from experiments.qlora.torchao_exploration.optimize_qwen_simpruning import bypass_inactive_bridges
         restored = bypass_inactive_bridges(model)
         print('Bypassed empty bridges:', len(restored), flush=True)
         compare('cached_train_native_sdpa_skip_empty')

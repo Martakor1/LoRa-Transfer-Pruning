@@ -7,7 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 import torch
-from optimize_qwen_simpruning import cache_flop_count, cache_parameter_iteration, skip_redundant_train
+sys.path.insert(0, str(next(p for p in Path(__file__).resolve().parents if (p / "lora_transfer_pruning").is_dir())))
+from experiments.qlora.torchao_exploration.optimize_qwen_simpruning import cache_flop_count, cache_parameter_iteration, skip_redundant_train
 
 
 def test_parameter_cache_preserves_aliases_order_clipping_and_zero_grad():

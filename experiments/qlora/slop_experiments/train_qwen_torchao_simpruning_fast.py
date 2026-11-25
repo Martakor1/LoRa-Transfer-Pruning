@@ -11,10 +11,11 @@ from pathlib import Path
 from dataclasses import replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from train_qwen_torchao_sft import ExperimentConfig, run_experiment, plot_training_history
-from train_qwen_torchao import HERE
-from replay_qwen_sp_plan import prepare_saved_plan
-from optimize_qwen_simpruning import skip_redundant_train, cache_flop_count, cache_parameter_iteration
+sys.path.insert(0, str(next(p for p in Path(__file__).resolve().parents if (p / "lora_transfer_pruning").is_dir())))
+from experiments.qlora.torchao_exploration.train_qwen_torchao_sft import ExperimentConfig, run_experiment, plot_training_history
+from experiments.qlora.torchao_exploration.train_qwen_torchao import HERE
+from experiments.qlora.torchao_exploration.replay_qwen_sp_plan import prepare_saved_plan
+from experiments.qlora.torchao_exploration.optimize_qwen_simpruning import skip_redundant_train, cache_flop_count, cache_parameter_iteration
 import torch
 
 

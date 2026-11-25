@@ -8,7 +8,8 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from torchao_int4 import TorchAOInt4Linear, delta, use_fixed_kernel_config
+sys.path.insert(0, str(next(p for p in Path(__file__).resolve().parents if (p / "lora_transfer_pruning").is_dir())))
+from experiments.qlora.torchao_exploration.torchao_int4 import TorchAOInt4Linear, delta, use_fixed_kernel_config
 
 
 def milliseconds(fn, repeats=30):

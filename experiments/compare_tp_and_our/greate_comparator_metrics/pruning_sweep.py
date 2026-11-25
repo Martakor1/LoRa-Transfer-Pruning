@@ -114,7 +114,9 @@ Also restores the pre-hooks installed by structural setup and all shape metadata
 def make_task(bridge, cfg):
     import torch
     from lora_transfer_pruning.core.prune_task_type import ModelPruneTask, GroupPruneTask
-    from lora_transfer_pruning.adapter.torch_pruning.universal.gemma4_group_builder import Gemma4GroupBuilder
+    from lora_transfer_pruning.adapter.pruning_propagation.torch_pruning_group_builder.universal.gemma4_group_builder import (
+        Gemma4GroupBuilder,
+    )
     n = len(bridge.blocks)
     layers = {'single': [0], 'distributed': [0, n // 2, n - 1], 'full': list(range(n))}[cfg['coverage']]
     tasks, effective_layers, mlp_layers = {}, set(), []

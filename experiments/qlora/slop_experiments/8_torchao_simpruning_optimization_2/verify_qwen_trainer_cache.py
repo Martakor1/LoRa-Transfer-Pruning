@@ -7,10 +7,11 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from train_qwen_torchao_sft import ExperimentConfig, create_trainer, prepare_packed_datasets, set_seed
-from train_qwen_torchao import load_gptq_model, add_lora
-from replay_qwen_sp_plan import wrap_qwen, apply_saved_plan
-from optimize_qwen_simpruning import skip_redundant_train, cache_flop_count, cache_parameter_iteration
+sys.path.insert(0, str(next(p for p in Path(__file__).resolve().parents if (p / "lora_transfer_pruning").is_dir())))
+from experiments.qlora.torchao_exploration.train_qwen_torchao_sft import ExperimentConfig, create_trainer, prepare_packed_datasets, set_seed
+from experiments.qlora.torchao_exploration.train_qwen_torchao import load_gptq_model, add_lora
+from experiments.qlora.torchao_exploration.replay_qwen_sp_plan import wrap_qwen, apply_saved_plan
+from experiments.qlora.torchao_exploration.optimize_qwen_simpruning import skip_redundant_train, cache_flop_count, cache_parameter_iteration
 from profile_qwen_training_overhead import OUTPUT as PROFILE_OUTPUT, StepPhases
 import torch
 from transformers import TrainerCallback

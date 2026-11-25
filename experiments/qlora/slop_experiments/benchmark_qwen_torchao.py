@@ -30,7 +30,8 @@ os.environ.setdefault("COMPUTE_DTYPE", "fp16")
 import torch
 from torch.profiler import ProfilerActivity, profile, record_function
 
-from train_qwen_torchao import (
+sys.path.insert(0, str(next(p for p in Path(__file__).resolve().parents if (p / "lora_transfer_pruning").is_dir())))
+from experiments.qlora.torchao_exploration.train_qwen_torchao import (
     COMPUTE_DTYPE, GPTQ_MODEL, HERE, add_lora, load_dataset, load_gptq_model,
 )
 
