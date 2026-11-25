@@ -7,7 +7,7 @@ from pruning_lens.core.pruning_trace import PruningTrace
 from pruning_lens.adapter.base_tracer import BaseTracer
 import torch_pruning as tp
 from pruning_lens.core.activation_corruption import ActivationCorruption
-from lora_transfer_pruning.adapter.torch_pruning.tp_utils import iter_pruned_linear_hooks
+from lora_transfer_pruning.adapter.pruning_propagation.torch_pruning_group_builder.tp_utils import iter_pruned_linear_hooks
 
 
 class TransferPruningTracer(BaseTracer):

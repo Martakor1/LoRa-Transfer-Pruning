@@ -4,7 +4,7 @@ import warnings
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
 from transformer_lens.model_bridge.transformer_bridge import TransformerBridge
 import torch_pruning as tp
-from lora_transfer_pruning.adapter.torch_pruning.tp_utils import get_active_module_in_dep_graph_from_linear_bridge, iter_pruned_linear_hooks
+from lora_transfer_pruning.adapter.pruning_propagation.torch_pruning_group_builder.tp_utils import get_active_module_in_dep_graph_from_linear_bridge, iter_pruned_linear_hooks
 
 class HookNamesFilter:
     

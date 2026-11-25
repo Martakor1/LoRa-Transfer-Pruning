@@ -4,7 +4,7 @@ Experimental, tied to torchao 0.17's prototype API. No full weight is unpacked
 during training. LoRA parameters are handled by PEFT, not by this module.
 """
 
-from lora_transfer_pruning.adapter.quantization.torchao_quantizer_int4 import TorchAOInt4Linear
+from lora_transfer_pruning.adapter.quantization.torchao_quantizer_int4.torchao_int4_linear import TorchAOInt4Linear
 
 
 def delta(actual, expected):

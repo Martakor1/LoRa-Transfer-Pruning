@@ -1,13 +1,15 @@
 import torch
 import torch_pruning as tp
+from gptqmodel.nn_modules.qlinear.torch import TorchLinear
 from torch import nn
 from transformer_lens.model_bridge.bridge import TransformerBridge
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
 from transformers import PreTrainedConfig
 from transformers.models.deepseek_v2.modeling_deepseek_v2 import DeepseekV2Model
 from transformers.models.gemma4.modeling_gemma4 import Gemma4TextAttention
-from lora_transfer_pruning.core.constants import HOOK_IN_NAME_LEN
+from lora_transfer_pruning.core import tl_utils
 from lora_transfer_pruning.core.prune_task_type import GroupPruneTask
+from lora_transfer_pruning.adapter.quantization.torchao_quantizer_int4.torchao_int4_linear import TorchAOInt4Linear
 
 from typing import Callable, cast
 
@@ -18,6 +20,9 @@ from .index_utils import IndexUtils
 from .tp_utils import get_active_module_in_dep_graph_from_linear_bridge
 from . import tp_utils
 from .universal.gemma4_group_builder import Gemma4GroupBuilder
+from .custom_pruners import PackedLinearDepGraphOnlyPruner
+from lora_transfer_pruning.core.tl_adapters import ExpertBridge
+from torch_pruning.pruner.function import BasePruningFunc
 
 class TorchPruningGroupBuilder:
 
@@ -25,7 +30,8 @@ class TorchPruningGroupBuilder:
                  model_bridge: TransformerBridge,
                  example_input_ids: torch.Tensor,
                  unwrapped_params: list[torch.nn.Parameter] = [],
-                 ignored_params: list[torch.nn.Parameter] = []):
+                 ignored_params: list[torch.nn.Parameter] = [],
+                 customized_pruners: dict | None = None):
         '''Builds a dependency graph for pruning using torch_pruning.
 
             Params:
@@ -34,23 +40,58 @@ class TorchPruningGroupBuilder:
                 unwrapped_params: params in modules, that torch_pruning can't handle or trailing params that not in modules. For example .weight in `LlamaRMSNorm`.
                     Pass it to ignore them during pruning.
         '''
+        pruners: dict[type[nn.Module], BasePruningFunc] = {
+            TorchAOInt4Linear: PackedLinearDepGraphOnlyPruner(),
+            TorchLinear: PackedLinearDepGraphOnlyPruner(),
+        }
+        pruners.update(customized_pruners or {})
+
         self.DG = tp.DependencyGraph().build_dependency(
             model_bridge,
             example_inputs=example_input_ids,
-            forward_fn=TorchPruningGroupBuilder._trace_forward,
+            forward_fn=TorchPruningGroupBuilder._trace_forward, #type: ignore 
             ignored_params=ignored_params,
+            customized_pruners=pruners,
             unwrapped_parameters=list(
                 zip(unwrapped_params, [0] * len(unwrapped_params)))  # type: ignore
         )
         self.model_bridge = model_bridge
 
     @staticmethod
-    def _trace_forward(model_bridge, input_ids):
-        return model_bridge(
-            input=input_ids,
-            use_cache=False,
-            return_type="logits",
-        ) 
+    def _trace_forward(model_bridge: TransformerBridge, input_ids) -> tuple[torch.Tensor, ...]:
+        model_output = model_bridge(
+                input=input_ids,
+                use_cache=False,
+                return_type="logits",
+            )
+        
+        experts_outputs = TorchPruningGroupBuilder._trace_all_experts(model_bridge)
+
+        return (model_output, *experts_outputs)
+    
+    @staticmethod
+    def _trace_all_experts(model_bridge: TransformerBridge) -> list[torch.Tensor]:
+        with torch.autograd.graph.save_on_cpu(pin_memory=False): #todo benefits of pin?
+            expert_list_modules = [
+                module for name, module in model_bridge.named_modules()
+                if name.rsplit('.', 1)[-1] == 'experts' and isinstance(module, nn.ModuleList)
+            ]
+            experts = cast(list[ExpertBridge], [expert for expert_list in expert_list_modules for expert in expert_list])
+            if not experts:
+                return []
+            
+            extra_outputs = []
+            synthetic_input = torch.ones(
+                [1, model_bridge.config.hidden_size], device=model_bridge.device, dtype=model_bridge.dtype,
+                requires_grad=True,
+            )
+            for expert in experts:
+                print(f"Tracing expert {tl_utils.get_absolute_tl_name(expert)} with synthetic input")
+
+                extra_outputs.append(expert(synthetic_input))
+
+            return extra_outputs
+
 
     @staticmethod
     def save_grad_mask(model: nn.Module) -> dict[nn.Parameter, bool]:
@@ -71,8 +112,7 @@ class TorchPruningGroupBuilder:
 
         Also returns setup function to apply later. It change static fields related to module for torch pruning shapes compatability (self_attn.head_dim for example).
         If nothing to change returns no-op function.'''
-        assert module.hook_in.name is not None
-        bridge_name = module.hook_in.name[:-HOOK_IN_NAME_LEN]
+        bridge_name = tl_utils.get_absolute_tl_name(module)
 
         device = tp_utils.get_device(module)
         tp_group_task = TorchPruningGroupTask.from_group_prune_task(groupPruneTask, device)
@@ -96,9 +136,10 @@ class TorchPruningGroupBuilder:
                 # --------------------------------------------------------------------- #
                 # DeepSeek V2 MLA direct-Q path.
                 # --------------------------------------------------------------------- #
-                if (bridge_name.endswith(".attn.q_proj")
+                if (isinstance(self.model_bridge.model, DeepseekV2Model)
+                    and bridge_name.endswith(".attn.q_proj")
                     and tp_pruning_function == tp.prune_linear_out_channels
-                        and isinstance(self.model_bridge.model, DeepseekV2Model)):
+                        ):
     
                     group, structural_setup = DeepseekV2GroupBuilder.get_correct_pruning_group_and_structural_setup_for_attn(
                         self.DG, 
@@ -154,8 +195,7 @@ class TorchPruningGroupBuilder:
                 original_bridge = cast(LinearBridge, self.model_bridge.get_submodule(
                     dep.target.name.rpartition("._original_component")[0]))
                 # I don't find a better way to get universal transformer_lens name, only from name of hook
-                assert original_bridge.hook_in.name is not None
-                bridge_name = original_bridge.hook_in.name[:-HOOK_IN_NAME_LEN]
+                bridge_name = tl_utils.get_absolute_tl_name(original_bridge)
                 if (bridge_name.endswith(".k") or bridge_name.endswith(".v")):
                     in_channels_need_to_be_pruned = dep.pruning_fn.__name__.endswith("in_channels")
                     # for in channels can't be in invalid state

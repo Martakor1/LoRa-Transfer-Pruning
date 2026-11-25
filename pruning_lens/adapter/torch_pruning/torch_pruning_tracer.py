@@ -6,7 +6,7 @@ from transformer_lens.tools.analysis.attribution_patching import GradientCache
 from pruning_lens.adapter.base_tracer import BaseTracer
 from pruning_lens.core.activation_corruption import ActivationCorruption, RemovedChannelsDefect
 from pruning_lens.core.pruning_trace import PruningTrace
-from lora_transfer_pruning.adapter.torch_pruning.tp_utils import iter_pruned_linear_hooks
+from lora_transfer_pruning.adapter.pruning_propagation.torch_pruning_group_builder.tp_utils import iter_pruned_linear_hooks
 
 
 class UnknownPruningMappingWarning(UserWarning):

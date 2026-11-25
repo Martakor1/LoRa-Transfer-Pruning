@@ -2,11 +2,11 @@ from peft import PeftModel
 import torch
 
 from transformer_lens.model_bridge.bridge import TransformerBridge
-from lora_transfer_pruning.adapter.torch_pruning.torch_pruning_group_builder import TorchPruningGroupBuilder
+from lora_transfer_pruning.adapter.pruning_propagation.torch_pruning_group_builder.torch_pruning_group_builder import TorchPruningGroupBuilder
 import torch_pruning as tp
 
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
-from lora_transfer_pruning.usecase.torch_pruning_group_mapper import TorchPruningGroupMapper
+from lora_transfer_pruning.core.torch_pruning_group_mapper import TorchPruningGroupMapper
 from lora_transfer_pruning.core.prune_task_type import ModelPruneTask
 from .prune_task_plan import PruneTaskPlan
 

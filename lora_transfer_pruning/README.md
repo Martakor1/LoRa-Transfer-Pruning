@@ -24,7 +24,7 @@ ModelPruneTask → LocalPruning → TorchPruningGroupBuilder → PruneTaskPlan
 | Layer | Responsibility |
 | --- | --- |
 | [`core/`](core/) | Task definitions, activation instrumentation, and multi-adapter training. |
-| [`adapter/torch_pruning/`](adapter/torch_pruning/) | DG construction, index mapping, architecture-specific groups, and structural setup. |
+| [`adapter/pruning_propagation/torch_pruning_group_builder/`](adapter/pruning_propagation/torch_pruning_group_builder/) | DG construction, index mapping, architecture-specific groups, and structural setup. |
 | [`usecase/`](usecase/) | Creating plans and applying them through the public `LocalPruning` API. |
 
 Main entities:

@@ -6,7 +6,7 @@ from lora_transfer_pruning.core.pruning_instrumentor import PruningInstrumentor
 from transformer_lens.model_bridge.bridge import TransformerBridge
 from typing import Callable, cast
 from lora_transfer_pruning.core import tl_utils
-from lora_transfer_pruning.adapter.torch_pruning.tp_utils import get_active_module_in_dep_graph_from_linear_bridge
+from lora_transfer_pruning.adapter.pruning_propagation.torch_pruning_group_builder.tp_utils import get_active_module_in_dep_graph_from_linear_bridge
 
 from transformer_lens.model_bridge.generalized_components.base import GeneralizedComponent
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge

@@ -7,11 +7,11 @@ from transformer_lens.model_bridge.bridge import TransformerBridge
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
 from transformer_lens.model_bridge.generalized_components.mla_attention import MLAAttentionBridge
 from transformers.models.deepseek_v2.modeling_deepseek_v2 import DeepseekV2Attention, DeepseekV2RMSNorm
-from lora_transfer_pruning.adapter.torch_pruning.torch_pruning_group_task import TorchPruningGroupTask
+from ..torch_pruning_group_task import TorchPruningGroupTask
 from .deepseek_v2_structural_setup import DeepseekV2StructuralSetup
-from lora_transfer_pruning.adapter.torch_pruning.index_utils import IndexUtils
-from lora_transfer_pruning.adapter.torch_pruning.tp_utils import get_active_module_in_dep_graph_from_linear_bridge
-from lora_transfer_pruning.adapter.torch_pruning.universal.universal_group_builder import UniversalGroupBuilder
+from ..index_utils import IndexUtils
+from ..tp_utils import get_active_module_in_dep_graph_from_linear_bridge
+from ..universal.universal_group_builder import UniversalGroupBuilder
 
 
 class DeepseekV2GroupBuilder:

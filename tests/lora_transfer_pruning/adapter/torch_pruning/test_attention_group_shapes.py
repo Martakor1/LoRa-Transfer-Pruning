@@ -12,7 +12,7 @@ from transformer_lens.model_bridge import TransformerBridge
 
 from lora_transfer_pruning.core.prune_task_type import GroupPruneTask, ModelPruneTask
 from lora_transfer_pruning.usecase.local_pruning import LocalPruning
-from lora_transfer_pruning.adapter.torch_pruning.universal.gemma4_group_builder import Gemma4GroupBuilder
+from lora_transfer_pruning.adapter.pruning_propagation.torch_pruning_group_builder.universal.gemma4_group_builder import Gemma4GroupBuilder
 
 
 def tiny_bridge(kind):

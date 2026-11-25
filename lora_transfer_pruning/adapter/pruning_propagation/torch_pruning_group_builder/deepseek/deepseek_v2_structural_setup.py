@@ -3,7 +3,7 @@ from typing import Callable
 import torch
 from transformers.models.deepseek_v2.modeling_deepseek_v2 import DeepseekV2Attention
 from transformer_lens.model_bridge.generalized_components.mla_attention import MLAAttentionBridge
-from lora_transfer_pruning.adapter.torch_pruning.index_utils import IndexUtils
+from ..index_utils import IndexUtils
 
 class DeepseekV2StructuralSetup:
     

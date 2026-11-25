@@ -5,7 +5,7 @@ import torch
 import torch_pruning as tp
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
 
-from lora_transfer_pruning.adapter.torch_pruning.universal.universal_group_builder import UniversalGroupBuilder
+from lora_transfer_pruning.adapter.pruning_propagation.torch_pruning_group_builder.universal.universal_group_builder import UniversalGroupBuilder
 
 
 @pytest.mark.parametrize('prune_out', [False, True])

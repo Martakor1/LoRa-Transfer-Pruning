@@ -9,7 +9,7 @@ from transformers import PreTrainedConfig
 from transformer_lens.model_bridge.bridge import TransformerBridge
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
 from .universal_structural_setup import UniversalStructuralSetup
-from lora_transfer_pruning.adapter.torch_pruning.index_utils import IndexUtils
+from ..index_utils import IndexUtils
 
 class UniversalGroupBuilder:
             

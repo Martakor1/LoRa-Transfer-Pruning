@@ -5,7 +5,7 @@ import torch_pruning as tp
 from transformer_lens.HookedRootModule import HookedRootModule
 from transformer_lens.model_bridge.generalized_components.linear import LinearBridge
 
-from lora_transfer_pruning.usecase.torch_pruning_group_mapper import TorchPruningGroupMapper
+from lora_transfer_pruning.core.torch_pruning_group_mapper import TorchPruningGroupMapper
 
 
 class ModelWithNoGlobalDevice(HookedRootModule):
